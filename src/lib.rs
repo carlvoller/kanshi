@@ -68,6 +68,7 @@ impl FileSystemTracer {
 
 #[cfg(test)]
 mod tests {
+    use core::time;
     use std::path::PathBuf;
 
     use platforms::linux::fanotify;
@@ -81,11 +82,24 @@ mod tests {
             Err(e) => panic!("{e}"),
         };
 
-        match listener.watch_directory(PathBuf::from("/tmp")) {
+        match listener.watch_directory(PathBuf::from("./test")) {
             Ok(_) => println!("It works!!!"),
             Err(e) => {
                 panic!("{e}")
             }
         };
+
+        match listener.read_event() {
+            Some(event) => {
+                for e in event.iter() {
+                    let mask = e.mask;
+                    println!("found event with mask {mask}")
+                }
+                println!("got here!")
+            },
+            None => println!("no events happened!")
+        }
+
+        listener.close();
     }
 }
