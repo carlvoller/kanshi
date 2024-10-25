@@ -1,11 +1,12 @@
 mod platforms;
 mod opts;
 mod errors;
+mod events;
 
 use std::fs;
 use std::thread;
 
-use platforms::linux::fanotify::Fanotify;
+// use platforms::linux::fanotify::Fanotify;
 use errors::FileSystemTracerError;
 
 pub struct FileSystemTracer {
@@ -27,38 +28,5 @@ impl FileSystemTracer {
 
 #[cfg(test)]
 mod tests {
-    use core::time;
-    use std::path::PathBuf;
-
-    use platforms::linux::fanotify;
-
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let listener = match Fanotify::new() {
-            Ok(listener) => listener,
-            Err(e) => panic!("{e}"),
-        };
-
-        match listener.watch_directory(PathBuf::from("./test")) {
-            Ok(_) => println!("It works!!!"),
-            Err(e) => {
-                panic!("{e}")
-            }
-        };
-
-        match listener.read_event() {
-            Some(event) => {
-                for e in event.iter() {
-                    let mask = e.mask;
-                    println!("found event with mask {mask}")
-                }
-                println!("got here!")
-            },
-            None => println!("no events happened!")
-        }
-
-        listener.close();
-    }
+    
 }

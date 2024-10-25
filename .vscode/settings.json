@@ -1,4 +1,4 @@
 {
-    "rust-analyzer.cargo.target": "x86_64-unknown-linux-gnu",
+    "rust-analyzer.cargo.target": "aarch64-unknown-linux-gnu",
     "editor.tabSize": 4
 }
