@@ -23,6 +23,10 @@ impl FileSystemWatcher for FanotifyWatcher {
         Ok(())
     }
 
+    fn into_stream(self) -> crate::opts::FileSystemEventStream {
+        
+    }
+
     fn close(self) -> Result<(), crate::errors::FileSystemTracerError> {
         Ok(())
     }
