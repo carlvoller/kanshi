@@ -1,156 +1,303 @@
-use async_stream::stream;
-use futures::Stream;
-// use nix::sys::fanotify;
 use std::{
-    ffi::{OsStr, OsString},
-    os::fd::AsRawFd,
-    sync::Arc,
+    collections::{HashSet, VecDeque},
+    ffi::{CStr, OsStr, OsString},
+    fs, io,
+    os::{
+        fd::{AsFd, AsRawFd},
+        unix::fs::MetadataExt,
+    },
+    path::{Path, PathBuf},
 };
 
+use async_stream::stream;
+use nix::{
+    fcntl::AT_FDCWD,
+    sys::{
+        epoll::Epoll,
+        fanotify::{Fanotify, FanotifyInfoRecord},
+    },
+};
+use tokio::sync::broadcast::error::TryRecvError;
+use tokio_util::sync::CancellationToken;
+
 use crate::{FileSystemEvent, FileSystemEventType, FileSystemTracer, FileSystemTracerError};
-use tokio;
-use super::libc::fanotify;
+
+use super::TracerOptions;
 
 pub struct FanotifyTracer {
-    fd: Arc<fanotify::Fanotify>,
-    channel: tokio::sync::broadcast::Sender<Result<FileSystemEvent, FileSystemTracerError>>,
+    // mark_set: HashSet<i32>,
+    fanotify: Fanotify,
+    epoll: Epoll,
+    sender: tokio::sync::broadcast::Sender<FileSystemEvent>,
+    // reciever: tokio::sync::broadcast::Receiver<FileSystemEvent>,
+    cancellation_token: CancellationToken,
 }
 
-pub struct FanotifyTracerOptions {}
+#[repr(C)]
+pub struct FileHandle {
+    pub handle_bytes: u32,
+    pub handle_type: i32,
+    pub f_handle: [u8; 0],
+}
 
-impl FileSystemTracer<FanotifyTracerOptions> for FanotifyTracer {
+impl FileSystemTracer<TracerOptions> for FanotifyTracer {
     fn new(
-        _opts: FanotifyTracerOptions,
-    ) -> Result<impl FileSystemTracer<FanotifyTracerOptions>, FileSystemTracerError> {
-        let flags = fanotify::InitFlags::from_bits_retain(libc::FAN_REPORT_FID);
-        let event_flags = fanotify::EventFFlags::O_RDWR | fanotify::EventFFlags::O_LARGEFILE;
-        let fanotify_fd = match fanotify::Fanotify::init(flags, event_flags) {
-            Ok(fd) => Ok(fd),
-            Err(e) => Err(FileSystemTracerError::FileSystemError(e.to_string())),
-        };
+        _opts: TracerOptions,
+    ) -> Result<impl FileSystemTracer<TracerOptions>, FileSystemTracerError> {
+        use nix::sys::epoll::{EpollCreateFlags, EpollEvent, EpollFlags};
+        use nix::sys::fanotify::{EventFFlags, InitFlags};
 
-        if let Err(e) = fanotify_fd {
-            return Err(e);
-        }
+        #[allow(non_snake_case)]
+        let INIT_FLAGS: InitFlags = InitFlags::FAN_CLASS_NOTIF
+            | InitFlags::FAN_REPORT_DFID_NAME
+            | InitFlags::FAN_UNLIMITED_QUEUE
+            | InitFlags::FAN_UNLIMITED_MARKS;
+        #[allow(non_snake_case)]
+        let EVENT_FLAGS: EventFFlags =
+            EventFFlags::O_RDONLY | EventFFlags::O_NONBLOCK | EventFFlags::O_CLOEXEC;
 
-        let fanotify_fd = Arc::new(fanotify_fd.ok().unwrap());
-        let (tx, mut _rx) = tokio::sync::broadcast::channel(32);
+        let fanotify_fd = Fanotify::init(INIT_FLAGS, EVENT_FLAGS);
 
-        let task_fd = fanotify_fd.clone();
-        let task_tx = tx.clone();
-        tokio::task::spawn_blocking(move || 'taskLoop: loop {
-            match task_fd.read_events_with_info_records() {
-                Ok(events) => {
-                    for event in events {
-                        if let Err(_) = task_tx.send(Ok(fanotify_to_event(event))) {
-                            break 'taskLoop;
-                        }
-                    }
+        if let Ok(fanotify) = fanotify_fd {
+            // Setup epoll
+            let epoll_event =
+                EpollEvent::new(EpollFlags::EPOLLIN, fanotify.as_fd().as_raw_fd() as u64);
+
+            let epoll_fd = Epoll::new(EpollCreateFlags::EPOLL_CLOEXEC);
+
+            if let Ok(epoll) = epoll_fd {
+                if let Err(e) = epoll.add(fanotify.as_fd(), epoll_event) {
+                    Err(FileSystemTracerError::FileSystemError(e.to_string()))
+                } else {
+                    let (tx, _rx) = tokio::sync::broadcast::channel(32);
+                    Ok(FanotifyTracer {
+                        // mark_set: HashSet::new(),
+                        fanotify,
+                        epoll,
+                        sender: tx,
+                        // reciever: rx,
+                        cancellation_token: CancellationToken::new(),
+                    })
                 }
-                Err(e) => {
-                    if let Err(_) =
-                        task_tx.send(Err(FileSystemTracerError::FileSystemError(e.to_string())))
-                    {
-                        break 'taskLoop;
-                    }
-                }
+            } else {
+                let e = epoll_fd.err().unwrap();
+                Err(FileSystemTracerError::FileSystemError(e.to_string()))
             }
-        });
-
-        Ok(FanotifyTracer {
-            fd: fanotify_fd,
-            channel: tx,
-        })
+        } else {
+            Err(FileSystemTracerError::FileSystemError(
+                io::Error::last_os_error().to_string(),
+            ))
+        }
     }
 
     fn watch(&self, dir: &str) -> Result<(), FileSystemTracerError> {
-        let watch_masks = fanotify::MaskFlags::FAN_MODIFY
-            | fanotify::MaskFlags::FAN_CREATE
-            | fanotify::MaskFlags::FAN_DELETE
-            | fanotify::MaskFlags::FAN_MOVE_SELF
-            | fanotify::MaskFlags::FAN_MOVE;
-
-        match self.fd.mark(
-            fanotify::MarkFlags::FAN_MARK_ADD | fanotify::MarkFlags::FAN_MARK_FILESYSTEM,
-            watch_masks,
-            None,
-            Some(dir),
-        ) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(FileSystemTracerError::FileSystemError(e.to_string())),
+        if self.cancellation_token.is_cancelled() {
+            return Err(FileSystemTracerError::StreamClosedError);
         }
-    }
 
-    fn stream_events(&self) -> impl Stream<Item = Result<FileSystemEvent, FileSystemTracerError>> {
-        let mut listener = self.channel.subscribe();
+        let mark_top_dir = mark(&self.fanotify, Path::new(dir));
 
-        let s = stream! {
-            loop {
-                match listener.recv().await {
-                    Ok(x) => yield x,
-                    Err(_) => yield Err(FileSystemTracerError::StreamClosedError)
+        if let Ok(_) = mark_top_dir {
+            let mut traversal_queue = VecDeque::from([PathBuf::from(dir)]);
+            let mut visited = HashSet::<u64>::new();
+
+            'outer: loop {
+                if let Some(next_dir) = traversal_queue.pop_front() {
+                    if let Ok(dir_items) = fs::read_dir(next_dir) {
+                        for dir_item in dir_items {
+                            if let Ok(dir_item_unwrapped) = dir_item {
+                                if let Ok(metadata) = dir_item_unwrapped.metadata() {
+                                    let inode_number = metadata.ino();
+                                    if !visited.contains(&inode_number) && !metadata.is_symlink() {
+                                        visited.insert(inode_number);
+                                        if let Err(e) =
+                                            mark(&self.fanotify, &dir_item_unwrapped.path())
+                                        {
+                                            return Err(e);
+                                        }
+                                        if dir_item_unwrapped.path().is_dir() {
+                                            traversal_queue.push_back(dir_item_unwrapped.path());
+                                        }
+                                    }
+                                }
+                            } else {
+                                break 'outer;
+                            }
+                        }
+                    } else {
+                        break 'outer;
+                    }
+                } else {
+                    break 'outer;
                 }
             }
-        };
 
-        s
-    }
+            println!("{:?}", visited.len());
 
-    fn close(self) {}
-}
-
-fn fd_to_fullpath(fd: i32) -> Result<OsString, FileSystemTracerError> {
-    let fd_path = format!("/proc/self/fd/{fd}");
-
-    match nix::fcntl::readlink::<OsStr>(fd_path.as_ref()) {
-        Ok(path) => Ok(path),
-        Err(e) => Err(FileSystemTracerError::FileSystemError(e.to_string())),
-    }
-}
-
-fn fanotify_to_event(ev: fanotify::FanotifyEventWithInfoRecords) -> FileSystemEvent {
-    let target_fd = ev.fd();
-    let d = target_fd.is_some();
-    println!("{d}");
-    // ev.
-    let info_records = ev.get_events();
-
-    for record in info_records {
-        match record {
-            &fanotify::FanotifyInfoRecord::Fid(record) => {
-                record
-            },
-            _ => ()
+            Ok(())
+        } else {
+            mark_top_dir
         }
     }
 
-    let name = match target_fd {
-        Some(fd) => {
-            let a = fd_to_fullpath(fd.as_raw_fd());
-            if a.is_err() {
-                let e = a.err().unwrap().to_string();
-                println!("Error: {e}");
-                None
-            } else {
-                let name = a.ok().unwrap();
-                let string = name.to_str().unwrap();
-                println!("{string}");
-                Some(name)
+    fn get_events_stream(&self) -> impl futures::Stream<Item = FileSystemEvent> + Send {
+        let mut listener = self.sender.subscribe();
+
+        stream! {
+            loop {
+                if !self.cancellation_token.is_cancelled() {
+                  match listener.try_recv() {
+                    Ok(x) => yield x,
+                    Err(e) => match e {
+                      TryRecvError::Closed => break,
+                      _ => ()
+                    }
+                  }
+                } else {
+                  break
+                }
             }
         }
-        None => None,
-    };
+    }
 
-    let mask = ev.mask();
+    fn start(&self) -> Result<(), FileSystemTracerError> {
+        while !self.cancellation_token.is_cancelled() {
+            use nix::sys::epoll::EpollEvent;
+            use nix::sys::fanotify::MaskFlags;
 
-    let lib_event = match mask {
-        x if x.contains(fanotify::MaskFlags::FAN_CREATE) => FileSystemEventType::Create,
-        x if x.contains(fanotify::MaskFlags::FAN_DELETE) => FileSystemEventType::Delete,
-        _ => FileSystemEventType::Unknown,
-    };
+            let mut events = [EpollEvent::empty()];
+            let res = self.epoll.wait(&mut events, 16u8)?;
+            if res > 0 {
+                let all_records = self.fanotify.read_events_with_info_records()?;
+                for (event, records) in all_records {
+                    let mut tracer_event = FileSystemEvent {
+                        event_type: match event.mask() {
+                            x if x.contains(MaskFlags::FAN_CREATE) => FileSystemEventType::Create,
+                            x if x.contains(MaskFlags::FAN_DELETE_SELF) => FileSystemEventType::Delete,
+                            x if x.contains(MaskFlags::FAN_DELETE) => FileSystemEventType::Delete,
+                            x if x.contains(MaskFlags::FAN_MODIFY) => FileSystemEventType::Modify,
+                            x if x.contains(MaskFlags::FAN_MOVE) => FileSystemEventType::Move,
+                            x if x.contains(MaskFlags::FAN_MOVE_SELF) => FileSystemEventType::Move,
+                            _ => FileSystemEventType::Unknown,
+                        },
+                        target: None,
+                    };
 
-    FileSystemEvent {
-        target: name,
-        event_type: lib_event,
+                    let mut path = OsString::new();
+
+                    for record in records {
+                        if let FanotifyInfoRecord::Fid(record) = record {
+                            let fh = record.handle() as *mut FileHandle;
+                            let fd = unsafe {
+                                libc::syscall(
+                                    libc::SYS_open_by_handle_at,
+                                    AT_FDCWD,
+                                    fh,
+                                    libc::O_RDONLY
+                                        | libc::O_CLOEXEC
+                                        | libc::O_PATH
+                                        | libc::O_NONBLOCK,
+                                )
+                            };
+
+                            if fd > 0 {
+                                let fd_path = format!("/proc/self/fd/{fd}");
+                                path.push(nix::fcntl::readlink::<OsStr>(fd_path.as_ref())?);
+                                unsafe { libc::close(fd as i32) };
+                            }
+
+                            let file_name: *const libc::c_char = unsafe {
+                                (fh.add(1) as *const libc::c_char)
+                                    .add(size_of_val(&(*fh).f_handle))
+                                    .add(size_of_val(&(*fh).handle_bytes))
+                                    .add(size_of_val(&(*fh).handle_type))
+                                    .add(4) // no idea why i need to add 4 here tbh
+                            };
+
+                            if !file_name.is_null()
+                                && unsafe {
+                                    libc::strcmp(
+                                        file_name,
+                                        b".\0".as_ptr() as *const libc::c_char,
+                                    ) != 0
+                                }
+                            {
+                                let file_name_as_cstr =
+                                    unsafe { CStr::from_ptr(file_name).to_str() };
+                                if let Ok(name) = file_name_as_cstr {
+                                    path.push("/");
+                                    path.push(name);
+                                }
+                            }
+
+
+                            // break;
+                        }
+                    }
+                    if path.len() > 0 {
+                        tracer_event.target = Some(path);
+                    }
+                    self.sender.send(tracer_event);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn close(&self) -> bool {
+        use nix::sys::fanotify::{MarkFlags, MaskFlags};
+
+        if self.cancellation_token.is_cancelled() {
+            return true;
+        }
+
+        self.cancellation_token.cancel();
+
+        #[allow(non_snake_case)]
+        let MARK_FLAGS = MarkFlags::FAN_MARK_FLUSH;
+
+        let mut has_error = false;
+
+        if self.epoll.delete(self.fanotify.as_fd()).is_err() {
+            println!("epoll.delete returned error");
+            has_error = true;
+        }
+        if self
+            .fanotify
+            .mark(MARK_FLAGS, MaskFlags::empty(), AT_FDCWD, Some("/"))
+            .is_err()
+        {
+            println!("fanotify.mark returned error");
+            has_error = true;
+        }
+        has_error
+    }
+}
+
+impl Drop for FanotifyTracer {
+    fn drop(&mut self) {
+        println!("dropped!");
+    }
+}
+
+fn mark(fanotify: &Fanotify, path: &Path) -> Result<(), FileSystemTracerError> {
+    use nix::sys::fanotify::{MarkFlags, MaskFlags};
+    #[allow(non_snake_case)]
+    let MARK_FLAGS = MarkFlags::FAN_MARK_ADD;
+    #[allow(non_snake_case)]
+    let MASK_FLAGS = MaskFlags::FAN_ONDIR
+        | MaskFlags::FAN_CREATE
+        | MaskFlags::FAN_MODIFY
+        | MaskFlags::FAN_DELETE
+        | MaskFlags::FAN_MOVE
+        | MaskFlags::FAN_DELETE_SELF
+        | MaskFlags::FAN_MOVE_SELF;
+
+    if let Err(e) = fanotify.mark(MARK_FLAGS, MASK_FLAGS, AT_FDCWD, Some(path)) {
+        println!("{:?}", path);
+        Err(FileSystemTracerError::FileSystemError(e.to_string()))
+    } else {
+        Ok(())
     }
 }
