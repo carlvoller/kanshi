@@ -6,6 +6,7 @@ pub enum LinuxEngines {
 }
 
 pub mod fanotify;
+pub mod inotify;
 pub struct TracerOptions {
   pub force_engine: Option<LinuxEngines>
 }

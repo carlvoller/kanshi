@@ -1,14 +1,20 @@
-[package]
-name = "fs-tracers"
-version = "0.1.0"
+[workspace]
+members = ["kanshi", "kanshi-js", "kanshi-py"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.1"
+authors = ["Carl Voller"]
 edition = "2021"
+homepage = "https://github.com/carlvoller/kanshi"
+license = "MIT"
+repository = "https://github.com/carlvoller/kanshi"
 
-[dependencies]
-async-stream = "0.3.6"
-futures = "0.3"
-libc = "0.2.166"
-nix = { features = ["event", "fanotify", "fs"], git = "https://github.com/carlvoller/nix", branch = "handle_fix" }
-thiserror = "1.0.64"
-tokio = { version = "1.41.1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
-tokio-util = "0.7.13"
+[workspace.dependencies]
 
+[profile.release]
+opt-level = 3
+lto = "fat"
+debug = true
+overflow-checks = false
+debug-assertions = false
