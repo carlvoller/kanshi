@@ -9,6 +9,7 @@ readme = "./README.md"
 
 [dependencies]
 async-stream = "0.3.6"
+bitflags = "2.6.0"
 futures = "0.3"
 libc = "0.2.166"
 nix = { features = ["event", "fanotify", "fs", "inotify"], git = "https://github.com/carlvoller/nix", branch = "handle_fix" }

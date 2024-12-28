@@ -184,6 +184,7 @@ name = "kanshi"
 version = "0.0.1"
 dependencies = [
  "async-stream",
+ "bitflags",
  "futures",
  "libc",
  "nix",

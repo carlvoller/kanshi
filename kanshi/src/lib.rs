@@ -22,6 +22,9 @@ pub enum FileSystemTracerError {
 
     #[error("the file system listener was closed")]
     StreamClosedError,
+
+    #[error("listener has already started")]
+    TracerStartedError,
 }
 
 impl From<io::Error> for FileSystemTracerError {
@@ -89,6 +92,59 @@ pub trait FileSystemTracer<Opts> {
 }
 
 #[cfg(test)]
+#[cfg(target_os = "macos")]
+mod tests {
+
+    use std::sync::Arc;
+
+    use futures::{pin_mut, StreamExt};
+
+    use crate::{platforms::darwin::{fsevents::FSEventsTracer, TracerOptions}, FileSystemTracer};
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn main() {
+        let fan = FSEventsTracer::new(TracerOptions { force_engine: None });
+        if let Err(e) = fan {
+            panic!("{e}");
+        }
+
+        let fanotify = Arc::new(fan.ok().unwrap());
+        if let Err(e) = fanotify.watch("./why").await {
+            panic!("{e}");
+        }
+
+        let f = fanotify.clone();
+        tokio::task::spawn(async move {
+            let stream = f.get_events_stream();
+            pin_mut!(stream);
+            while let Some(event) = stream.next().await {
+                let event_type = event.event_type;
+                if let Some(target) = event.target {
+                    println!("{:?} - {:?}", event_type, target.path)
+                } else {
+                    println!("{:?}", event_type)
+                }
+            }
+        });
+
+        let f = fanotify.clone();
+        tokio::task::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(400)).await;
+            f.close();
+        });
+
+        if let Err(e) = fanotify.start().await {
+            panic!("{e}");
+        }
+
+        println!("closed");
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
+
+}
+
+#[cfg(test)]
+#[cfg(target_os = "linux")]
 mod tests {
 
     use std::{ffi::OsString, sync::Arc};
