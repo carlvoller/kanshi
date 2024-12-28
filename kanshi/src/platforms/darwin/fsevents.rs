@@ -19,6 +19,7 @@ use crate::{
     FileSystemTracerError,
 };
 
+#[derive(Clone)]
 pub struct FSEventsTracer {
     stream: Arc<RwLock<Option<WrappedEventStreamRef>>>,
     sender: tokio::sync::broadcast::Sender<FileSystemEvent>,

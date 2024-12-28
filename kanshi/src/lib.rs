@@ -6,9 +6,6 @@ use futures::Stream;
 use nix::errno::Errno;
 use thiserror::Error;
 
-#[cfg(target_os = "linux")]
-pub use platforms::linux::*;
-
 #[derive(Error, Debug, Clone)]
 pub enum FileSystemTracerError {
     #[error("unable to attach ptrace to subprocess thread: {0}")]
@@ -67,8 +64,6 @@ pub struct FileSystemEvent {
     pub event_type: FileSystemEventType,
     pub target: Option<FileSystemTarget>,
 }
-
-pub trait FileSystemStream: Stream {}
 
 pub trait FileSystemTracer<Opts> {
     /// Creates a new FileSystemTracer instance.
