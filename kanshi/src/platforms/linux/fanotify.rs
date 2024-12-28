@@ -6,7 +6,7 @@ use std::{
         fd::{AsFd, AsRawFd},
         unix::fs::MetadataExt,
     },
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, sync::Arc,
 };
 
 use async_stream::stream;
@@ -29,9 +29,10 @@ use crate::{
 
 use super::TracerOptions;
 
+#[derive(Clone)]
 pub struct FanotifyTracer {
-    fanotify: Fanotify,
-    epoll: Epoll,
+    fanotify: Arc<Fanotify>,
+    epoll: Arc<Epoll>,
     sender: tokio::sync::broadcast::Sender<FileSystemEvent>,
     cancellation_token: CancellationToken,
 }
@@ -46,7 +47,7 @@ pub struct FileHandle {
 impl FileSystemTracer<TracerOptions> for FanotifyTracer {
     fn new(
         _opts: TracerOptions,
-    ) -> Result<impl FileSystemTracer<TracerOptions>, FileSystemTracerError> {
+    ) -> Result<impl FileSystemTracer<TracerOptions> + Clone, FileSystemTracerError> {
         use nix::sys::epoll::{EpollCreateFlags, EpollEvent, EpollFlags};
         use nix::sys::fanotify::{EventFFlags, InitFlags};
 
@@ -77,8 +78,8 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
                     let (tx, _rx) = tokio::sync::broadcast::channel(32);
                     Ok(FanotifyTracer {
                         // mark_set: HashSet::new(),
-                        fanotify,
-                        epoll,
+                        fanotify: Arc::new(fanotify),
+                        epoll: Arc::new(epoll),
                         sender: tx,
                         // reciever: rx,
                         cancellation_token: CancellationToken::new(),

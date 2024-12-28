@@ -99,7 +99,7 @@ extern "C" fn callback(
 impl FileSystemTracer<TracerOptions> for FSEventsTracer {
     fn new(
         _opts: TracerOptions,
-    ) -> Result<impl FileSystemTracer<TracerOptions>, FileSystemTracerError> {
+    ) -> Result<impl FileSystemTracer<TracerOptions> + Clone, FileSystemTracerError> {
         let (tx, _rx) = tokio::sync::broadcast::channel(32);
 
         Ok(FSEventsTracer {

@@ -68,7 +68,7 @@ pub struct FileSystemEvent {
 pub trait FileSystemTracer<Opts> {
     /// Creates a new FileSystemTracer instance.
     /// Warning: This method blocks the thread until its finished!
-    fn new(opts: Opts) -> Result<impl FileSystemTracer<Opts>, FileSystemTracerError>;
+    fn new(opts: Opts) -> Result<impl FileSystemTracer<Opts> + Clone, FileSystemTracerError>;
 
     /// Watches a new directory.
     /// Warning: This method blocks the thread until its finished!
@@ -94,7 +94,10 @@ mod tests {
 
     use futures::{pin_mut, StreamExt};
 
-    use crate::{platforms::darwin::{fsevents::FSEventsTracer, TracerOptions}, FileSystemTracer};
+    use crate::{
+        platforms::darwin::{fsevents::FSEventsTracer, TracerOptions},
+        FileSystemTracer,
+    };
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn main() {
@@ -135,21 +138,18 @@ mod tests {
         println!("closed");
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
-
 }
 
 #[cfg(test)]
 #[cfg(target_os = "linux")]
 mod tests {
 
-    use std::{ffi::OsString, sync::Arc};
-
     use crate::{
-        platforms::linux::{fanotify::FanotifyTracer, inotify::INotifyTracer},
-        FileSystemTracer, TracerOptions,
+        platforms::linux::{fanotify::FanotifyTracer, TracerOptions},
+        FileSystemTracer,
     };
     use futures::{pin_mut, StreamExt};
-    use nix::sys::fanotify;
+    // use nix::sys::fanotify;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn main() {
@@ -158,7 +158,7 @@ mod tests {
             panic!("{e}");
         }
 
-        let fanotify = Arc::new(fan.ok().unwrap());
+        let fanotify = fan.ok().unwrap();
         if let Err(e) = fanotify.watch("./why").await {
             panic!("{e}");
         }

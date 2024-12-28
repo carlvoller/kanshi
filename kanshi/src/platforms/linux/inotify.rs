@@ -26,9 +26,10 @@ use crate::{
 
 use super::TracerOptions;
 
+#[derive(Clone)]
 pub struct INotifyTracer {
-    inotify: Inotify,
-    epoll: Epoll,
+    inotify: Arc<Inotify>,
+    epoll: Arc<Epoll>,
     sender: tokio::sync::broadcast::Sender<FileSystemEvent>,
     cancellation_token: CancellationToken,
     watch_descriptors: Arc<Mutex<HashMap<WatchDescriptor, PathBuf>>>,
@@ -37,7 +38,7 @@ pub struct INotifyTracer {
 impl FileSystemTracer<TracerOptions> for INotifyTracer {
     fn new(
         _opts: TracerOptions,
-    ) -> Result<impl FileSystemTracer<TracerOptions>, crate::FileSystemTracerError> {
+    ) -> Result<impl FileSystemTracer<TracerOptions> + Clone, FileSystemTracerError> {
         use nix::sys::epoll::{EpollCreateFlags, EpollEvent, EpollFlags};
         use nix::sys::inotify::InitFlags;
 
@@ -59,8 +60,8 @@ impl FileSystemTracer<TracerOptions> for INotifyTracer {
                 } else {
                     let (tx, _rx) = tokio::sync::broadcast::channel(32);
                     Ok(INotifyTracer {
-                        inotify,
-                        epoll,
+                        inotify: Arc::new(inotify),
+                        epoll: Arc::new(epoll),
                         sender: tx,
                         cancellation_token: CancellationToken::new(),
                         watch_descriptors: Arc::new(Mutex::new(HashMap::new())),
