@@ -6,16 +6,18 @@ use std::{
         fd::{AsFd, AsRawFd},
         unix::fs::MetadataExt,
     },
-    path::{Path, PathBuf}
+    path::{Path, PathBuf},
 };
 
 use async_stream::stream;
 use libc::{FAN_EVENT_INFO_TYPE_NEW_DFID_NAME, FAN_EVENT_INFO_TYPE_OLD_DFID_NAME};
 use nix::{
-    errno::Errno, fcntl::AT_FDCWD, sys::{
+    errno::Errno,
+    fcntl::AT_FDCWD,
+    sys::{
         epoll::Epoll,
         fanotify::{Fanotify, FanotifyFidRecord, FanotifyInfoRecord},
-    }
+    },
 };
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
@@ -93,7 +95,7 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
         }
     }
 
-    fn watch(&self, dir: &str) -> Result<(), FileSystemTracerError> {
+    async fn watch(&self, dir: &str) -> Result<(), FileSystemTracerError> {
         if self.cancellation_token.is_cancelled() {
             return Err(FileSystemTracerError::StreamClosedError);
         }
@@ -165,16 +167,19 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
         }
     }
 
-    fn start(&self) -> Result<(), FileSystemTracerError> {
+    async fn start(&self) -> Result<(), FileSystemTracerError> {
+        use nix::sys::epoll::EpollEvent;
+
         let cancel_token = self.cancellation_token.clone();
         let sender = self.sender.clone();
 
+        let mut events = [EpollEvent::empty(); 1];
+
         while !cancel_token.is_cancelled() {
-            use nix::sys::epoll::EpollEvent;
             use nix::sys::fanotify::MaskFlags;
 
-            let mut events = [EpollEvent::empty()];
-            let res = self.epoll.wait(&mut events, 16u8);
+            events.fill(EpollEvent::empty());
+            let res = tokio::task::block_in_place(move || self.epoll.wait(&mut events, 16u8));
             if let Err(e) = res {
                 println!("epoll failed {e}");
                 res?;
@@ -227,7 +232,7 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
                                 event_type: FileSystemEventType::MovedTo(moved_to.clone().unwrap()),
                                 target: Some(FileSystemTarget {
                                     path: moved_from.clone().unwrap(),
-                                    kind: kind.clone()
+                                    kind: kind.clone(),
                                 }),
                             };
 
@@ -235,7 +240,7 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
                                 event_type: FileSystemEventType::MovedFrom(moved_from.unwrap()),
                                 target: Some(FileSystemTarget {
                                     path: moved_to.clone().unwrap(),
-                                    kind
+                                    kind,
                                 }),
                             };
 
@@ -288,7 +293,9 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
                             }
                         }
                         if path.is_some() && path.as_ref().unwrap().len() > 0 {
-                            if event.mask().contains(MaskFlags::FAN_CREATE) && kind == FileSystemTargetKind::Directory {
+                            if event.mask().contains(MaskFlags::FAN_CREATE)
+                                && kind == FileSystemTargetKind::Directory
+                            {
                                 let path = Path::new(path.as_ref().unwrap());
 
                                 // Add new directory to fanotify
@@ -296,17 +303,16 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
                                     // We ignore ENOENT errors as it likely means a file was immediately created and deleted
                                     if let FileSystemTracerError::FileSystemError(e) = err.clone() {
                                         if !e.contains("ENOENT") {
-                                            return Err(err)
+                                            return Err(err);
                                         }
                                     }
                                 }
                             }
                             tracer_event.target = Some(FileSystemTarget {
                                 kind: kind.clone(),
-                                path: path.unwrap()
+                                path: path.unwrap(),
                             });
                         }
-
 
                         if let Err(_) = sender.send(tracer_event) {
                             return Err(FileSystemTracerError::StreamClosedError);
@@ -345,7 +351,7 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
             println!("fanotify.mark returned error");
             has_error = true;
         }
-        has_error
+        !has_error
     }
 }
 
@@ -392,7 +398,7 @@ fn get_path_from_record(record: &FanotifyFidRecord) -> Result<OsString, Errno> {
         path.push(nix::fcntl::readlink::<OsStr>(fd_path.as_ref())?);
         unsafe { libc::close(fd as i32) };
     } else {
-        return Err(Errno::last())
+        return Err(Errno::last());
     }
 
     let file_name: *const libc::c_char = unsafe {
