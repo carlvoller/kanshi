@@ -3,7 +3,12 @@
 #![allow(unused)]
 
 use bitflags::bitflags;
-use std::os::raw::{c_long, c_uchar, c_uint, c_void};
+use std::{
+    cell::LazyCell,
+    os::raw::{c_long, c_uchar, c_uint, c_void},
+};
+
+use super::CFStringCreateWithBytes;
 
 //
 // MacOS CoreFoundation types
@@ -14,7 +19,9 @@ pub enum CFError {}
 pub type CFRef = *mut c_void;
 pub type CFErrorRef = *mut CFError;
 pub type CFStringRef = CFRef;
+pub type CFNumberRef = CFRef;
 pub type CFArrayRef = CFRef;
+pub type CFDictionaryRef = CFRef;
 pub type CFAllocatorRef = CFRef;
 pub type CFMutableArrayRef = CFRef;
 pub type CFURLRef = CFRef;
@@ -31,6 +38,12 @@ pub type CFArrayCopyDescriptionCallBack = extern "C" fn(*const c_void) -> CFStri
 pub type CFArrayEqualCallBack = extern "C" fn(*const c_void, *const c_void) -> Boolean;
 
 #[repr(C)]
+pub struct CFRange {
+    pub location: isize,
+    pub length: isize,
+}
+
+#[repr(C)]
 pub struct CFArrayCallBacks {
     version: CFIndex,
     retain: Option<CFArrayRetainCallBack>,
@@ -42,6 +55,7 @@ pub struct CFArrayCallBacks {
 pub const NULL: CFRef = 0 as CFRef;
 pub const kCFAllocatorDefault: CFAllocatorRef = NULL;
 pub const kCFURLPOSIXPathStyle: CFURLPathStyle = 0 as CFIndex;
+pub const kCFNumberSInt64Type: u32 = 4;
 
 //
 // MacOS DispatchQueue types
@@ -60,12 +74,32 @@ pub type FSEventStreamCallback = extern "C" fn(
     *const FSEventStreamRef, // ConstFSEventStreamRef - Reference to the stream this event originated from
     CFRef, // *mut FSEventStreamContext->info - Optionally supplied context during stream creation.
     usize, // numEvents - Number of total events in this callback
-    *const *const std::os::raw::c_char, // eventPaths - Array of C Strings representing the paths where each event occurred
+    CFRef, // eventPaths - Array of C Strings representing the paths where each event occurred
     *const FSEventStreamEventFlags, // eventFlags - Array of EventFlags corresponding to each event
     *const FSEventStreamId, // eventIds - Array of EventIds corresponding to each event. This Id is guaranteed to always be increasing.
 );
 
+pub const kCFStringEncodingUTF8: u32 = 0x08000100;
 pub const kFSEventStreamEventIdSinceNow: FSEventStreamId = 0xFFFFFFFFFFFFFFFF;
+pub const kFSEventStreamEventExtendedDataPathKey: LazyCell<CFStringRef> =
+    LazyCell::new(|| unsafe {
+        CFStringCreateWithBytes(
+            kCFAllocatorDefault,
+            "path".as_ptr(),
+            "path".len() as isize,
+            kCFStringEncodingUTF8,
+            false as Boolean,
+        )
+    });
+pub const kFSEventStreamEventExtendedFileIDKey: LazyCell<CFStringRef> = LazyCell::new(|| unsafe {
+    CFStringCreateWithBytes(
+        kCFAllocatorDefault,
+        "fileID".as_ptr(),
+        "fileID".len() as isize,
+        kCFStringEncodingUTF8,
+        false as Boolean,
+    )
+});
 
 #[repr(C)]
 pub struct FSEventStreamContext {

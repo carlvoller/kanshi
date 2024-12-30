@@ -1,8 +1,9 @@
 mod platforms;
 
+pub use platforms::*;
+
 use std::{ffi::OsString, io};
 
-use futures::Stream;
 use nix::errno::Errno;
 use thiserror::Error;
 
@@ -36,7 +37,7 @@ impl From<Errno> for FileSystemTracerError {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileSystemEventType {
     Create,
     Delete,
@@ -94,14 +95,11 @@ mod tests {
 
     use futures::{pin_mut, StreamExt};
 
-    use crate::{
-        platforms::darwin::{fsevents::FSEventsTracer, TracerOptions},
-        FileSystemTracer,
-    };
+    use crate::Kanshi;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn main() {
-        let fan = FSEventsTracer::new(TracerOptions { force_engine: None });
+        let fan = Kanshi::new(None);
         if let Err(e) = fan {
             panic!("{e}");
         }
@@ -127,7 +125,7 @@ mod tests {
 
         let f = fanotify.clone();
         tokio::task::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(400)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             f.close();
         });
 

@@ -1,6 +1,10 @@
 pub mod types;
 
-use std::{ffi::CString, os::raw::c_char, ptr::null_mut};
+use std::{
+    ffi::{CStr, CString},
+    os::raw::c_char,
+    ptr::null_mut,
+};
 
 use types::*;
 
@@ -83,6 +87,7 @@ extern "C" {
 
     pub fn CFArrayGetCount(arr: CFMutableArrayRef) -> CFIndex;
     pub fn CFArrayGetValueAtIndex(arr: CFMutableArrayRef, index: CFIndex) -> CFRef;
+    pub fn CFDictionaryGetValue(dict: CFDictionaryRef, key: CFRef) -> CFRef;
 
     pub fn CFURLCreateCopyAppendingPathComponent(
         allocation: CFRef,
@@ -94,6 +99,31 @@ extern "C" {
     pub fn CFURLCopyFileSystemPath(anUrl: CFURLRef, path_style: CFURLPathStyle) -> CFStringRef;
 
     pub fn CFArrayAppendValue(aff: CFMutableArrayRef, element: CFRef);
+
+    pub fn CFStringCreateWithBytes(
+        allocator: CFRef,
+        bytes: *const u8,
+        numBytes: isize,
+        encoding: u32,
+        isExternalRepresenation: u8,
+    ) -> CFStringRef;
+
+    pub fn CFNumberGetValue(number: CFNumberRef, theType: u32, valuePtr: *mut CFRef) -> bool;
+
+    pub fn CFStringGetCStringPtr(theString: CFStringRef, encoding: u32) -> *const i8;
+
+    pub fn CFStringGetLength(theString: CFStringRef) -> isize;
+
+    pub fn CFStringGetBytes(
+        theString: CFStringRef,
+        range: CFRange,
+        encoding: u32,
+        lossByte: u8,
+        isExternalRepresentation: u8,
+        buffer: *mut u8,
+        maxBufLen: isize,
+        usedBufLen: *mut isize,
+    ) -> isize;
 
 }
 
@@ -181,4 +211,49 @@ pub unsafe fn rust_str_to_cf_string(rust_str: &str, err: CFErrorRef) -> CFString
     let cf_path = CFURLCopyFileSystemPath(placeholder, kCFURLPOSIXPathStyle);
     CFRelease(placeholder);
     cf_path
+}
+
+pub unsafe fn cfstr_to_str(string: CFStringRef) -> String {
+    let cstr_ptr = CFStringGetCStringPtr(string, kCFStringEncodingUTF8);
+    if !cstr_ptr.is_null() {
+        CStr::from_ptr(cstr_ptr).to_str().ok().unwrap().to_owned()
+    } else {
+        let str_len = CFStringGetLength(string);
+        let bytes_required = 0 as *mut isize;
+        CFStringGetBytes(
+            string,
+            CFRange {
+                location: 0,
+                length: str_len,
+            },
+            kCFStringEncodingUTF8,
+            0,
+            false as Boolean,
+            std::ptr::null_mut(),
+            0,
+            bytes_required,
+        );
+
+        let mut final_string_buffer = Vec::with_capacity(bytes_required as usize);
+        final_string_buffer.fill(b'\x00');
+
+        let mut bytes_used = 0;
+        CFStringGetBytes(
+            string,
+            CFRange {
+                location: 0,
+                length: str_len,
+            },
+            kCFStringEncodingUTF8,
+            0,
+            false as Boolean,
+            final_string_buffer.as_mut_ptr(),
+            final_string_buffer.len() as isize,
+            &mut bytes_used,
+        );
+
+        String::from_utf8_unchecked(final_string_buffer)
+
+        // CStr::from_bytes_with_nul_unchecked(&final_string_buffer).to_str().ok().unwrap()
+    }
 }

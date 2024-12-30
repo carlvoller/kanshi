@@ -1,4 +1,5 @@
-use std::ffi::{CStr, OsString};
+use std::collections::HashMap;
+use std::ffi::OsString;
 use std::os::raw::c_void;
 use std::path::{self, Path, PathBuf};
 use std::sync::Arc;
@@ -14,6 +15,11 @@ use super::core_foundation::types::{
 };
 use super::core_foundation::{self as CoreFoundation, dispatch_release, types as CFTypes};
 use super::TracerOptions;
+use crate::platforms::darwin::core_foundation::types::{
+    kCFNumberSInt64Type, kFSEventStreamEventExtendedDataPathKey,
+    kFSEventStreamEventExtendedFileIDKey,
+};
+use crate::platforms::darwin::core_foundation::{CFArrayGetValueAtIndex, CFDictionaryGetValue};
 use crate::{
     FileSystemEvent, FileSystemEventType, FileSystemTarget, FileSystemTargetKind, FileSystemTracer,
     FileSystemTracerError,
@@ -35,19 +41,36 @@ extern "C" fn callback(
     _stream_ref: *const CFTypes::FSEventStreamRef, // ConstFSEventStreamRef - Reference to the stream this event originated from
     info: CFTypes::CFRef, // *mut FSEventStreamContext->info - Optionally supplied context during stream creation.
     num_event: usize,     // numEvents - Number of total events in this callback
-    event_paths: *const *const std::os::raw::c_char, // eventPaths - Array of C Strings representing the paths where each event occurred
+    event_paths: CFTypes::CFRef, // eventPaths - Array of C Strings representing the paths where each event occurred
     event_flags: *const CFTypes::FSEventStreamEventFlags, // eventFlags - Array of EventFlags corresponding to each event
     _event_ids: *const CFTypes::FSEventStreamId, // eventIds - Array of EventIds corresponding to each event. This Id is guaranteed to always be increasing.
 ) {
     let sender = info as *mut Sender<FileSystemEvent>;
+    let mut inode_map = HashMap::<i64, FileSystemEvent>::new();
     for idx in 0..num_event {
+        let dict = unsafe { CFArrayGetValueAtIndex(event_paths, idx as CFIndex) };
         let path = unsafe {
-            CStr::from_ptr(*event_paths.add(idx))
-                .to_str()
-                .expect("Path was invalid UTF8 string")
+            CoreFoundation::cfstr_to_str(
+                CoreFoundation::CFDictionaryGetValue(dict, *kFSEventStreamEventExtendedDataPathKey)
+                    .cast(),
+            )
         };
+
+        let inode = unsafe {
+            let mut value: i64 = 0;
+            let ok = CoreFoundation::CFNumberGetValue(
+                CFDictionaryGetValue(dict, *kFSEventStreamEventExtendedFileIDKey),
+                kCFNumberSInt64Type,
+                &mut value as *mut i64 as *mut CFTypes::CFRef,
+            );
+            if ok {
+                Some(value)
+            } else {
+                None
+            }
+        };
+
         let flag = unsafe { *event_flags.add(idx) };
-        // let event_id = unsafe { *event_ids.add(idx) };
 
         let kind = if flag.contains(FSEventStreamEventFlags::kFSEventStreamEventFlagItemIsDir) {
             FileSystemTargetKind::Directory
@@ -55,9 +78,7 @@ extern "C" fn callback(
             FileSystemTargetKind::File
         };
 
-        println!("flag {:?}", flag);
-
-        let event_type = match flag {
+        let mut event_type = match flag {
             x if x.contains(FSEventStreamEventFlags::kFSEventStreamEventFlagItemCreated) => {
                 if x.contains(FSEventStreamEventFlags::kFSEventStreamEventFlagItemRemoved) {
                     FileSystemEventType::Delete
@@ -82,16 +103,53 @@ extern "C" fn callback(
             }
         };
 
-        let event = FileSystemEvent {
-            event_type,
-            target: Some(FileSystemTarget {
-                kind,
-                path: OsString::from(path),
-            }),
-        };
+        if event_type == FileSystemEventType::Move && inode.is_some() {
+            let inode = inode.unwrap();
+            if inode_map.contains_key(&inode) {
+                let mut old_event = inode_map.remove(&inode).unwrap();
+                old_event.event_type = FileSystemEventType::MovedTo(OsString::from(path.clone()));
+                event_type =
+                    FileSystemEventType::MovedFrom(old_event.target.as_ref().unwrap().path.clone());
 
-        if let Err(e) = unsafe { (*sender).send(event) } {
-            eprintln!("Send Error Occurred - {:?}", e.to_string());
+                let event = FileSystemEvent {
+                    event_type,
+                    target: Some(FileSystemTarget {
+                        kind,
+                        path: OsString::from(path),
+                    }),
+                };
+
+                if let Err(e) = unsafe { (*sender).send(old_event) } {
+                    eprintln!("Send Error Occurred - {:?}", e.to_string());
+                }
+
+                if let Err(e) = unsafe { (*sender).send(event) } {
+                    eprintln!("Send Error Occurred - {:?}", e.to_string());
+                }
+            } else {
+                // event_type =
+                let event = FileSystemEvent {
+                    event_type,
+                    target: Some(FileSystemTarget {
+                        kind,
+                        path: OsString::from(path),
+                    }),
+                };
+
+                inode_map.insert(inode, event);
+            }
+        } else {
+            let event = FileSystemEvent {
+                event_type,
+                target: Some(FileSystemTarget {
+                    kind,
+                    path: OsString::from(path),
+                }),
+            };
+
+            if let Err(e) = unsafe { (*sender).send(event) } {
+                eprintln!("Send Error Occurred - {:?}", e.to_string());
+            }
         }
     }
 }
@@ -158,6 +216,10 @@ impl FileSystemTracer<TracerOptions> for FSEventsTracer {
     }
 
     async fn start(&self) -> Result<(), FileSystemTracerError> {
+        if let Some(_) = *self.stream.read().await {
+            return Err(FileSystemTracerError::TracerStartedError);
+        }
+
         let sender = self.sender.clone();
         let ptr: *const Sender<FileSystemEvent> = &sender;
 
@@ -212,7 +274,9 @@ impl FileSystemTracer<TracerOptions> for FSEventsTracer {
         let paths_to_watch = paths_to_watch.ok().unwrap();
 
         let flags = CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagFileEvents
-            | CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagNoDefer;
+            | CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagNoDefer
+            | CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagUseExtendedData
+            | CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagUseCFTypes;
 
         let stream = unsafe {
             CoreFoundation::FSEventStreamCreate(
