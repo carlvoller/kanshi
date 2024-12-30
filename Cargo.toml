@@ -7,10 +7,11 @@ version = "0.0.1"
 authors = ["Carl Voller"]
 edition = "2021"
 homepage = "https://github.com/carlvoller/kanshi"
-license = "MIT"
+license = "BSD-3-Clause"
 repository = "https://github.com/carlvoller/kanshi"
 
 [workspace.dependencies]
+kanshi = { version = "0.0.1", path = "kanshi", default-features = false }
 
 [profile.release]
 opt-level = 3

@@ -92,28 +92,25 @@ pub trait KanshiImpl<Opts>: Clone {
 #[cfg(target_os = "macos")]
 mod tests {
 
-    use std::sync::Arc;
+    use futures::StreamExt;
 
-    use futures::{pin_mut, StreamExt};
-
-    use crate::Kanshi;
+    use crate::{Kanshi, KanshiImpl, KanshiOptions};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn main() {
-        let fan = Kanshi::new(None);
-        if let Err(e) = fan {
+        let kanshi = Kanshi::new(KanshiOptions { force_engine: None });
+        if let Err(e) = kanshi {
             panic!("{e}");
         }
 
-        let fanotify = Arc::new(fan.ok().unwrap());
-        if let Err(e) = fanotify.watch("./why").await {
+        let kanshi = kanshi.ok().unwrap();
+        if let Err(e) = kanshi.watch("./why").await {
             panic!("{e}");
         }
 
-        let f = fanotify.clone();
+        let kan = kanshi.clone();
         tokio::task::spawn(async move {
-            let stream = f.get_events_stream();
-            pin_mut!(stream);
+            let mut stream = kan.get_events_stream();
             while let Some(event) = stream.next().await {
                 let event_type = event.event_type;
                 if let Some(target) = event.target {
@@ -124,13 +121,13 @@ mod tests {
             }
         });
 
-        let f = fanotify.clone();
+        let kan = kanshi.clone();
         tokio::task::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-            f.close();
+            kan.close();
         });
 
-        if let Err(e) = fanotify.start().await {
+        if let Err(e) = kanshi.start().await {
             panic!("{e}");
         }
 
@@ -158,8 +155,9 @@ mod tests {
             panic!("{e}");
         }
 
+        let kan = kanshi.clone();
         tokio::task::spawn(async move {
-            let mut stream = kanshi.get_events_stream();
+            let mut stream = kan.get_events_stream();
             while let Some(event) = stream.next().await {
                 let event_type = event.event_type;
                 if let Some(target) = event.target {
@@ -170,9 +168,10 @@ mod tests {
             }
         });
 
+        let kan = kanshi.clone();
         tokio::task::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-            kanshi.close();
+            kan.close();
         });
 
         if let Err(e) = kanshi.start().await {

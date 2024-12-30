@@ -1,0 +1,33 @@
+{
+  "name": "@kanshi-js/linux-arm64-gnu",
+  "description": "Prebuilt binary package for `kanshi-js` on `linux-arm64-gnu`.",
+  "version": "0.1.0",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "index.node",
+  "files": [
+    "index.node"
+  ],
+  "neon": {
+    "type": "binary",
+    "rust": "aarch64-unknown-linux-gnu",
+    "node": "linux-arm64-gnu",
+    "os": "linux",
+    "arch": "arm64",
+    "abi": "gnu"
+  },
+  "author": "Carl Voller",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/carlvoller/kanshi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/carlvoller/kanshi/issues"
+  },
+  "homepage": "https://github.com/carlvoller/kanshi#readme",
+  "license": "BSD-3-Clause"
+}

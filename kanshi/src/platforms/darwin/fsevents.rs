@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::os::raw::c_void;
 use std::path::{self, Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use async_stream::stream;
@@ -14,15 +15,15 @@ use super::core_foundation::types::{
     CFIndex, CFMutableArrayRef, FSEventStreamEventFlags, FSEventStreamRef,
 };
 use super::core_foundation::{self as CoreFoundation, dispatch_release, types as CFTypes};
-use super::TracerOptions;
+use super::KanshiOptions;
 use crate::platforms::darwin::core_foundation::types::{
     kCFNumberSInt64Type, kFSEventStreamEventExtendedDataPathKey,
     kFSEventStreamEventExtendedFileIDKey,
 };
 use crate::platforms::darwin::core_foundation::{CFArrayGetValueAtIndex, CFDictionaryGetValue};
 use crate::{
-    FileSystemEvent, FileSystemEventType, FileSystemTarget, FileSystemTargetKind, FileSystemTracer,
-    FileSystemTracerError,
+    FileSystemEvent, FileSystemEventType, FileSystemTarget, FileSystemTargetKind, KanshiError,
+    KanshiImpl,
 };
 
 #[derive(Clone)]
@@ -154,10 +155,8 @@ extern "C" fn callback(
     }
 }
 
-impl FileSystemTracer<TracerOptions> for FSEventsTracer {
-    fn new(
-        _opts: TracerOptions,
-    ) -> Result<impl FileSystemTracer<TracerOptions> + Clone, FileSystemTracerError> {
+impl KanshiImpl<KanshiOptions> for FSEventsTracer {
+    fn new(_opts: KanshiOptions) -> Result<FSEventsTracer, KanshiError> {
         let (tx, _rx) = tokio::sync::broadcast::channel(32);
 
         Ok(FSEventsTracer {
@@ -168,16 +167,16 @@ impl FileSystemTracer<TracerOptions> for FSEventsTracer {
         })
     }
 
-    async fn watch(&self, dir: &str) -> Result<(), FileSystemTracerError> {
+    async fn watch(&self, dir: &str) -> Result<(), KanshiError> {
         if let Some(_) = *self.stream.read().await {
-            return Err(FileSystemTracerError::TracerStartedError);
+            return Err(KanshiError::ListenerStartedError);
         }
 
         let mut paths_to_watch = self.paths_to_watch.lock().await;
         let path = path::absolute(Path::new(dir));
         if let Ok(path) = path {
             if !path.exists() {
-                Err(FileSystemTracerError::FileSystemError(
+                Err(KanshiError::FileSystemError(
                     "ENOENT Directory does not exist".to_owned(),
                 ))
             } else {
@@ -185,17 +184,17 @@ impl FileSystemTracer<TracerOptions> for FSEventsTracer {
                 Ok(())
             }
         } else {
-            Err(FileSystemTracerError::FileSystemError(
+            Err(KanshiError::FileSystemError(
                 path.err().unwrap().to_string(),
             ))
         }
     }
 
-    fn get_events_stream(&self) -> impl futures::Stream<Item = FileSystemEvent> + Send {
+    fn get_events_stream(&self) -> Pin<Box<dyn futures::Stream<Item = FileSystemEvent> + Send>> {
         let mut listener = self.sender.subscribe();
         let cancel_token = self.cancellation_token.clone();
 
-        stream! {
+        Box::pin(stream! {
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
@@ -212,12 +211,12 @@ impl FileSystemTracer<TracerOptions> for FSEventsTracer {
                     }
                 }
             }
-        }
+        })
     }
 
-    async fn start(&self) -> Result<(), FileSystemTracerError> {
+    async fn start(&self) -> Result<(), KanshiError> {
         if let Some(_) = *self.stream.read().await {
-            return Err(FileSystemTracerError::TracerStartedError);
+            return Err(KanshiError::ListenerStartedError);
         }
 
         let sender = self.sender.clone();
@@ -242,7 +241,7 @@ impl FileSystemTracer<TracerOptions> for FSEventsTracer {
 
             for path in paths_to_watch.iter() {
                 if !path.exists() {
-                    return Err(FileSystemTracerError::FileSystemError(format!(
+                    return Err(KanshiError::FileSystemError(format!(
                         "{:?} does not exist",
                         path
                     )));
@@ -254,7 +253,7 @@ impl FileSystemTracer<TracerOptions> for FSEventsTracer {
                 let cf_path = CoreFoundation::rust_str_to_cf_string(path_as_str, err);
                 if cf_path.is_null() {
                     CoreFoundation::CFRelease(err as CFTypes::CFRef);
-                    return Err(FileSystemTracerError::FileSystemError(format!(
+                    return Err(KanshiError::FileSystemError(format!(
                         "{:?} does not exist",
                         path
                     )));

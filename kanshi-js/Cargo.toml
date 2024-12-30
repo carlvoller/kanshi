@@ -7,4 +7,9 @@ homepage.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
+kanshi = { workspace = true }
+neon = "1"
