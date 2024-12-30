@@ -7,6 +7,7 @@ use std::{
         unix::fs::MetadataExt,
     },
     path::{self, Path, PathBuf},
+    pin::Pin,
     sync::Arc,
 };
 
@@ -20,11 +21,11 @@ use tokio::sync::{broadcast::error::RecvError, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    FileSystemEvent, FileSystemEventType, FileSystemTarget, FileSystemTargetKind, FileSystemTracer,
-    FileSystemTracerError,
+    FileSystemEvent, FileSystemEventType, FileSystemTarget, FileSystemTargetKind, KanshiImpl,
+    KanshiError,
 };
 
-use super::TracerOptions;
+use super::KanshiOptions;
 
 #[derive(Clone)]
 pub struct INotifyTracer {
@@ -35,10 +36,8 @@ pub struct INotifyTracer {
     watch_descriptors: Arc<Mutex<HashMap<WatchDescriptor, PathBuf>>>,
 }
 
-impl FileSystemTracer<TracerOptions> for INotifyTracer {
-    fn new(
-        _opts: TracerOptions,
-    ) -> Result<impl FileSystemTracer<TracerOptions> + Clone, FileSystemTracerError> {
+impl KanshiImpl<KanshiOptions> for INotifyTracer {
+    fn new(_opts: KanshiOptions) -> Result<INotifyTracer, KanshiError> {
         use nix::sys::epoll::{EpollCreateFlags, EpollEvent, EpollFlags};
         use nix::sys::inotify::InitFlags;
 
@@ -56,7 +55,7 @@ impl FileSystemTracer<TracerOptions> for INotifyTracer {
 
             if let Ok(epoll) = epoll_fd {
                 if let Err(e) = epoll.add(inotify.as_fd(), epoll_event) {
-                    Err(FileSystemTracerError::FileSystemError(e.to_string()))
+                    Err(KanshiError::FileSystemError(e.to_string()))
                 } else {
                     let (tx, _rx) = tokio::sync::broadcast::channel(32);
                     Ok(INotifyTracer {
@@ -69,18 +68,18 @@ impl FileSystemTracer<TracerOptions> for INotifyTracer {
                 }
             } else {
                 let e = epoll_fd.err().unwrap();
-                Err(FileSystemTracerError::FileSystemError(e.to_string()))
+                Err(KanshiError::FileSystemError(e.to_string()))
             }
         } else {
-            Err(FileSystemTracerError::FileSystemError(
+            Err(KanshiError::FileSystemError(
                 io::Error::last_os_error().to_string(),
             ))
         }
     }
 
-    async fn watch(&self, dir: &str) -> Result<(), crate::FileSystemTracerError> {
+    async fn watch(&self, dir: &str) -> Result<(), crate::KanshiError> {
         if self.cancellation_token.is_cancelled() {
-            return Err(FileSystemTracerError::StreamClosedError);
+            return Err(KanshiError::StreamClosedError);
         }
 
         let absolute_path = path::absolute(Path::new(dir))?;
@@ -130,11 +129,11 @@ impl FileSystemTracer<TracerOptions> for INotifyTracer {
         }
     }
 
-    fn get_events_stream(&self) -> impl futures::Stream<Item = crate::FileSystemEvent> + Send {
+    fn get_events_stream(&self) -> Pin<Box<dyn futures::Stream<Item = FileSystemEvent> + Send>> {
         let mut listener = self.sender.subscribe();
         let cancel_token = self.cancellation_token.clone();
 
-        stream! {
+        Box::pin(stream! {
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
@@ -151,10 +150,10 @@ impl FileSystemTracer<TracerOptions> for INotifyTracer {
                     }
                 }
             }
-        }
+        })
     }
 
-    async fn start(&self) -> Result<(), crate::FileSystemTracerError> {
+    async fn start(&self) -> Result<(), crate::KanshiError> {
         use nix::sys::epoll::EpollEvent;
 
         let cancel_token = self.cancellation_token.clone();
@@ -245,7 +244,7 @@ impl FileSystemTracer<TracerOptions> for INotifyTracer {
                         };
 
                         if let Err(_) = sender.send(tracer_event) {
-                            return Err(FileSystemTracerError::StreamClosedError);
+                            return Err(KanshiError::StreamClosedError);
                         }
 
                     // Is a MOVED_FROM or MOVED_TO event.
@@ -325,11 +324,11 @@ impl FileSystemTracer<TracerOptions> for INotifyTracer {
                         };
 
                         if let Err(_) = sender.send(tracer_event1) {
-                            return Err(FileSystemTracerError::StreamClosedError);
+                            return Err(KanshiError::StreamClosedError);
                         }
 
                         if let Err(_) = sender.send(tracer_event2) {
-                            return Err(FileSystemTracerError::StreamClosedError);
+                            return Err(KanshiError::StreamClosedError);
                         }
                     }
                 }
@@ -388,7 +387,7 @@ impl FileSystemTracer<TracerOptions> for INotifyTracer {
                     };
 
                     if let Err(_) = sender.send(tracer_event) {
-                        return Err(FileSystemTracerError::StreamClosedError);
+                        return Err(KanshiError::StreamClosedError);
                     }
                 }
                 cookie_map.clear();
@@ -422,7 +421,7 @@ fn mark(
     inotify: &Inotify,
     watchers: &mut HashMap<WatchDescriptor, PathBuf>,
     path: &Path,
-) -> Result<(), FileSystemTracerError> {
+) -> Result<(), KanshiError> {
     use nix::sys::inotify::AddWatchFlags;
     #[allow(non_snake_case)]
     let MASK_FLAGS = AddWatchFlags::IN_CREATE
@@ -432,7 +431,7 @@ fn mark(
 
     let wd = inotify.add_watch(path, MASK_FLAGS);
     if let Err(e) = wd {
-        Err(FileSystemTracerError::FileSystemError(e.to_string()))
+        Err(KanshiError::FileSystemError(e.to_string()))
     } else {
         let wd = wd.ok().unwrap();
         watchers.insert(wd, path.to_path_buf());
@@ -440,7 +439,7 @@ fn mark(
     }
 }
 
-fn unmark(inotify: &Inotify, wd: &WatchDescriptor) -> Result<(), FileSystemTracerError> {
+fn unmark(inotify: &Inotify, wd: &WatchDescriptor) -> Result<(), KanshiError> {
     inotify.rm_watch(*wd)?;
     Ok(())
 }

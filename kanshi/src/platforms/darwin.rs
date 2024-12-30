@@ -28,7 +28,7 @@ impl Kanshi {
     };
       
     // On MacOS, only use FSEvents for now
-    Ok(fsevents::FSEventsTracer::new(opts)?)
+    Ok(FSEventsTracer::new(opts)?)
 
   }
 }

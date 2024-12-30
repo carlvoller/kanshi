@@ -6,7 +6,9 @@ use std::{
         fd::{AsFd, AsRawFd},
         unix::fs::MetadataExt,
     },
-    path::{Path, PathBuf}, sync::Arc,
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::Arc,
 };
 
 use async_stream::stream;
@@ -23,11 +25,11 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    FileSystemEvent, FileSystemEventType, FileSystemTarget, FileSystemTargetKind, FileSystemTracer,
-    FileSystemTracerError,
+    FileSystemEvent, FileSystemEventType, FileSystemTarget, FileSystemTargetKind, KanshiError,
+    KanshiImpl,
 };
 
-use super::TracerOptions;
+use super::KanshiOptions;
 
 #[derive(Clone)]
 pub struct FanotifyTracer {
@@ -44,10 +46,8 @@ pub struct FileHandle {
     pub f_handle: [u8; 0],
 }
 
-impl FileSystemTracer<TracerOptions> for FanotifyTracer {
-    fn new(
-        _opts: TracerOptions,
-    ) -> Result<impl FileSystemTracer<TracerOptions> + Clone, FileSystemTracerError> {
+impl KanshiImpl<KanshiOptions> for FanotifyTracer {
+    fn new(_opts: KanshiOptions) -> Result<FanotifyTracer, KanshiError> {
         use nix::sys::epoll::{EpollCreateFlags, EpollEvent, EpollFlags};
         use nix::sys::fanotify::{EventFFlags, InitFlags};
 
@@ -73,32 +73,33 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
 
             if let Ok(epoll) = epoll_fd {
                 if let Err(e) = epoll.add(fanotify.as_fd(), epoll_event) {
-                    Err(FileSystemTracerError::FileSystemError(e.to_string()))
+                    Err(KanshiError::FileSystemError(e.to_string()))
                 } else {
                     let (tx, _rx) = tokio::sync::broadcast::channel(32);
-                    Ok(FanotifyTracer {
+                    let engine = FanotifyTracer {
                         // mark_set: HashSet::new(),
                         fanotify: Arc::new(fanotify),
                         epoll: Arc::new(epoll),
                         sender: tx,
                         // reciever: rx,
                         cancellation_token: CancellationToken::new(),
-                    })
+                    };
+                    Ok(engine)
                 }
             } else {
                 let e = epoll_fd.err().unwrap();
-                Err(FileSystemTracerError::FileSystemError(e.to_string()))
+                Err(KanshiError::FileSystemError(e.to_string()))
             }
         } else {
-            Err(FileSystemTracerError::FileSystemError(
+            Err(KanshiError::FileSystemError(
                 io::Error::last_os_error().to_string(),
             ))
         }
     }
 
-    async fn watch(&self, dir: &str) -> Result<(), FileSystemTracerError> {
+    async fn watch(&self, dir: &str) -> Result<(), KanshiError> {
         if self.cancellation_token.is_cancelled() {
-            return Err(FileSystemTracerError::StreamClosedError);
+            return Err(KanshiError::StreamClosedError);
         }
 
         let mark_top_dir = mark(&self.fanotify, Path::new(dir));
@@ -144,11 +145,11 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
         }
     }
 
-    fn get_events_stream(&self) -> impl futures::Stream<Item = FileSystemEvent> + Send {
+    fn get_events_stream(&self) -> Pin<Box<dyn futures::Stream<Item = FileSystemEvent> + Send>> {
         let mut listener = self.sender.subscribe();
         let cancel_token = self.cancellation_token.clone();
 
-        stream! {
+        let events_stream = stream! {
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
@@ -165,10 +166,12 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
                     }
                 }
             }
-        }
+        };
+
+        Box::pin(events_stream)
     }
 
-    async fn start(&self) -> Result<(), FileSystemTracerError> {
+    async fn start(&self) -> Result<(), KanshiError> {
         use nix::sys::epoll::EpollEvent;
 
         let cancel_token = self.cancellation_token.clone();
@@ -226,7 +229,7 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
                                 }),
                             };
                             if let Err(_) = sender.send(tracer_event) {
-                                return Err(FileSystemTracerError::StreamClosedError);
+                                return Err(KanshiError::StreamClosedError);
                             }
                         } else {
                             let tracer_event1 = FileSystemEvent {
@@ -246,11 +249,11 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
                             };
 
                             if let Err(_) = sender.send(tracer_event1) {
-                                return Err(FileSystemTracerError::StreamClosedError);
+                                return Err(KanshiError::StreamClosedError);
                             }
 
                             if let Err(_) = sender.send(tracer_event2) {
-                                return Err(FileSystemTracerError::StreamClosedError);
+                                return Err(KanshiError::StreamClosedError);
                             }
                         }
                     } else {
@@ -302,7 +305,7 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
                                 // Add new directory to fanotify
                                 if let Err(err) = mark(&self.fanotify, path) {
                                     // We ignore ENOENT errors as it likely means a file was immediately created and deleted
-                                    if let FileSystemTracerError::FileSystemError(e) = err.clone() {
+                                    if let KanshiError::FileSystemError(e) = err.clone() {
                                         if !e.contains("ENOENT") {
                                             return Err(err);
                                         }
@@ -316,7 +319,7 @@ impl FileSystemTracer<TracerOptions> for FanotifyTracer {
                         }
 
                         if let Err(_) = sender.send(tracer_event) {
-                            return Err(FileSystemTracerError::StreamClosedError);
+                            return Err(KanshiError::StreamClosedError);
                         }
                     }
                 }
@@ -362,7 +365,7 @@ impl Drop for FanotifyTracer {
     }
 }
 
-fn mark(fanotify: &Fanotify, path: &Path) -> Result<(), FileSystemTracerError> {
+fn mark(fanotify: &Fanotify, path: &Path) -> Result<(), KanshiError> {
     use nix::sys::fanotify::{MarkFlags, MaskFlags};
     #[allow(non_snake_case)]
     let MARK_FLAGS = MarkFlags::FAN_MARK_ADD;
@@ -375,7 +378,7 @@ fn mark(fanotify: &Fanotify, path: &Path) -> Result<(), FileSystemTracerError> {
         | MaskFlags::FAN_RENAME;
 
     if let Err(e) = fanotify.mark(MARK_FLAGS, MASK_FLAGS, AT_FDCWD, Some(path)) {
-        Err(FileSystemTracerError::FileSystemError(e.to_string()))
+        Err(KanshiError::FileSystemError(e.to_string()))
     } else {
         Ok(())
     }
