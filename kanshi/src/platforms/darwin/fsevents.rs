@@ -12,9 +12,9 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use super::core_foundation::types::{
-    CFIndex, CFMutableArrayRef, FSEventStreamEventFlags, FSEventStreamRef,
+    dispatch_queue_t, CFIndex, CFMutableArrayRef, FSEventStreamEventFlags, FSEventStreamRef,
 };
-use super::core_foundation::{self as CoreFoundation, dispatch_release, types as CFTypes};
+use super::core_foundation::{self as CoreFoundation, types as CFTypes};
 use super::KanshiOptions;
 use crate::platforms::darwin::core_foundation::types::{
     kCFNumberSInt64Type, kFSEventStreamEventExtendedDataPathKey,
@@ -29,6 +29,7 @@ use crate::{
 #[derive(Clone)]
 pub struct FSEventsTracer {
     stream: Arc<RwLock<Option<WrappedEventStreamRef>>>,
+    dispatch_queue: Arc<RwLock<Option<WrappedDispatchQueue>>>,
     sender: tokio::sync::broadcast::Sender<FileSystemEvent>,
     cancellation_token: CancellationToken,
     paths_to_watch: Arc<Mutex<Vec<PathBuf>>>,
@@ -38,6 +39,10 @@ pub struct WrappedEventStreamRef(FSEventStreamRef);
 unsafe impl Send for WrappedEventStreamRef {}
 unsafe impl Sync for WrappedEventStreamRef {}
 
+pub struct WrappedDispatchQueue(dispatch_queue_t);
+unsafe impl Send for WrappedDispatchQueue {}
+unsafe impl Sync for WrappedDispatchQueue {}
+
 extern "C" fn callback(
     _stream_ref: *const CFTypes::FSEventStreamRef, // ConstFSEventStreamRef - Reference to the stream this event originated from
     info: CFTypes::CFRef, // *mut FSEventStreamContext->info - Optionally supplied context during stream creation.
@@ -46,7 +51,7 @@ extern "C" fn callback(
     event_flags: *const CFTypes::FSEventStreamEventFlags, // eventFlags - Array of EventFlags corresponding to each event
     _event_ids: *const CFTypes::FSEventStreamId, // eventIds - Array of EventIds corresponding to each event. This Id is guaranteed to always be increasing.
 ) {
-    let sender = info as *mut Sender<FileSystemEvent>;
+    let sender = info as *const Sender<FileSystemEvent>;
     let mut inode_map = HashMap::<i64, FileSystemEvent>::new();
     for idx in 0..num_event {
         let dict = unsafe { CFArrayGetValueAtIndex(event_paths, idx as CFIndex) };
@@ -164,6 +169,7 @@ impl KanshiImpl<KanshiOptions> for FSEventsTracer {
             sender: tx,
             cancellation_token: CancellationToken::new(),
             paths_to_watch: Arc::new(Mutex::new(Vec::new())),
+            dispatch_queue: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -195,18 +201,21 @@ impl KanshiImpl<KanshiOptions> for FSEventsTracer {
         let cancel_token = self.cancellation_token.clone();
 
         Box::pin(stream! {
-            loop {
+            'outer: loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
-                        break;
+                        break 'outer;
                     }
                     val = listener.recv() => {
                         match val {
-                            Ok(x) => yield x,
-                            Err(e) => match e {
-                                RecvError::Closed => break,
+                            Ok(x) => {
+                              yield x
+                            },
+                            Err(e) => {
+                              match e {
+                                RecvError::Closed => break 'outer,
                                 _ => ()
-                            }
+                            }}
                         }
                     }
                 }
@@ -219,91 +228,101 @@ impl KanshiImpl<KanshiOptions> for FSEventsTracer {
             return Err(KanshiError::ListenerStartedError);
         }
 
-        let sender = self.sender.clone();
-        let ptr: *const Sender<FileSystemEvent> = &sender;
-
-        let context = CFTypes::FSEventStreamContext {
-            version: 0 as *mut i64,
-            copy_description: None,
-            retain: None,
-            release: None,
-            info: ptr as *mut c_void,
-        };
-
-        let paths_to_watch = unsafe {
-            let paths: CFMutableArrayRef = CoreFoundation::CFArrayCreateMutable(
-                CFTypes::kCFAllocatorDefault,
-                0 as CFIndex,
-                &CoreFoundation::kCFTypeArrayCallBacks,
-            );
-
+        {
             let paths_to_watch = self.paths_to_watch.lock().await;
+            // let sender = self.sender.clone();
+            let ptr: *const Sender<FileSystemEvent> = &self.sender;
 
-            for path in paths_to_watch.iter() {
-                if !path.exists() {
-                    return Err(KanshiError::FileSystemError(format!(
-                        "{:?} does not exist",
-                        path
-                    )));
+            let context = CFTypes::FSEventStreamContext {
+                version: 0 as *mut i64,
+                copy_description: None,
+                retain: None,
+                release: None,
+                info: ptr as *mut c_void,
+            };
+
+            // drop(ptr);
+
+            let paths_to_watch = unsafe {
+                let paths: CFMutableArrayRef = CoreFoundation::CFArrayCreateMutable(
+                    CFTypes::kCFAllocatorDefault,
+                    0 as CFIndex,
+                    &CoreFoundation::kCFTypeArrayCallBacks,
+                );
+
+                for path in paths_to_watch.iter() {
+                    if !path.exists() {
+                        return Err(KanshiError::FileSystemError(format!(
+                            "{:?} does not exist",
+                            path
+                        )));
+                    }
+
+                    let canon_path = path.canonicalize()?;
+                    let path_as_str = canon_path.to_str().unwrap();
+                    let err: CFTypes::CFErrorRef = std::ptr::null_mut();
+                    let cf_path = CoreFoundation::rust_str_to_cf_string(path_as_str, err);
+                    if cf_path.is_null() {
+                        CoreFoundation::CFRelease(err as CFTypes::CFRef);
+                        return Err(KanshiError::FileSystemError(format!(
+                            "{:?} does not exist",
+                            path
+                        )));
+                    } else {
+                        CoreFoundation::CFArrayAppendValue(paths, cf_path);
+                        CoreFoundation::CFRelease(cf_path);
+                    }
                 }
 
-                let canon_path = path.canonicalize()?;
-                let path_as_str = canon_path.to_str().unwrap();
-                let err: CFTypes::CFErrorRef = std::ptr::null_mut();
-                let cf_path = CoreFoundation::rust_str_to_cf_string(path_as_str, err);
-                if cf_path.is_null() {
-                    CoreFoundation::CFRelease(err as CFTypes::CFRef);
-                    return Err(KanshiError::FileSystemError(format!(
-                        "{:?} does not exist",
-                        path
-                    )));
-                } else {
-                    CoreFoundation::CFArrayAppendValue(paths, cf_path);
-                    CoreFoundation::CFRelease(cf_path);
-                }
+                Ok(paths)
+            };
+
+            if let Err(e) = paths_to_watch {
+                return Err(e);
             }
 
-            Ok(paths)
-        };
+            let paths_to_watch = paths_to_watch.ok().unwrap();
 
-        if let Err(e) = paths_to_watch {
-            return Err(e);
+            let flags = CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagFileEvents
+                | CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagNoDefer
+                | CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagUseExtendedData
+                | CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagUseCFTypes;
+
+            let stream = unsafe {
+                CoreFoundation::FSEventStreamCreate(
+                    CFTypes::kCFAllocatorDefault,
+                    callback,
+                    &context,
+                    paths_to_watch,
+                    CFTypes::kFSEventStreamEventIdSinceNow,
+                    0.0,
+                    flags,
+                )
+            };
+
+            let dispatch_queue = unsafe {
+                CoreFoundation::dispatch_queue_create(
+                    std::ptr::null(),
+                    CFTypes::DISPATCH_QUEUE_SERIAL,
+                )
+            };
+
+            unsafe { CoreFoundation::FSEventStreamSetDispatchQueue(stream, dispatch_queue) };
+            unsafe { CoreFoundation::FSEventStreamStart(stream) };
+
+            if let Ok(mut stream_ref) = self.stream.try_write() {
+                *stream_ref = Some(WrappedEventStreamRef(stream));
+            }
+
+            if let Ok(mut dq_ref) = self.dispatch_queue.try_write() {
+                *dq_ref = Some(WrappedDispatchQueue(dispatch_queue));
+            }
         }
-
-        let paths_to_watch = paths_to_watch.ok().unwrap();
-
-        let flags = CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagFileEvents
-            | CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagNoDefer
-            | CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagUseExtendedData
-            | CFTypes::FSEventStreamCreateFlags::kFSEventStreamCreateFlagUseCFTypes;
-
-        let stream = unsafe {
-            CoreFoundation::FSEventStreamCreate(
-                CFTypes::kCFAllocatorDefault,
-                callback,
-                &context,
-                paths_to_watch,
-                CFTypes::kFSEventStreamEventIdSinceNow,
-                0.0,
-                flags,
-            )
-        };
-
-        let dispatch_queue = unsafe {
-            CoreFoundation::dispatch_queue_create(std::ptr::null(), CFTypes::DISPATCH_QUEUE_SERIAL)
-        };
-
-        unsafe { CoreFoundation::FSEventStreamSetDispatchQueue(stream, dispatch_queue) };
-        unsafe { CoreFoundation::FSEventStreamStart(stream) };
-
-        let mut stream_ref = self.stream.write().await;
-        *stream_ref = Some(WrappedEventStreamRef(stream));
-        drop(stream_ref);
 
         self.cancellation_token.cancelled().await;
 
         // Free the DispatchQueue
-        unsafe { dispatch_release(dispatch_queue) };
+        // unsafe { dispatch_release(dispatch_queue) };
 
         Ok(())
     }
@@ -314,6 +333,8 @@ impl KanshiImpl<KanshiOptions> for FSEventsTracer {
         }
 
         self.cancellation_token.cancel();
+
+        let mut has_errored = false;
 
         let stream_ref = self.stream.try_read();
         if let Ok(stream) = stream_ref {
@@ -328,9 +349,23 @@ impl KanshiImpl<KanshiOptions> for FSEventsTracer {
         } else {
             let e = stream_ref.err().unwrap();
             eprintln!("error occurred releasing stream {e}");
-            return false;
+            has_errored = true;
         }
 
-        true
+        let dq_ref = self.dispatch_queue.try_read();
+        if let Ok(dq) = dq_ref {
+            if dq.is_some() {
+                let dq = dq.as_ref().unwrap();
+                unsafe {
+                    CoreFoundation::dispatch_release(dq.0);
+                };
+            }
+        } else {
+            let e = dq_ref.err().unwrap();
+            eprintln!("error occurred releasing stream {e}");
+            has_errored = true;
+        }
+
+        !has_errored
     }
 }

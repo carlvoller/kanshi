@@ -23,6 +23,9 @@ pub enum KanshiError {
 
     #[error("listener has already started")]
     ListenerStartedError,
+
+    #[error("invalid parameter supplied: {0}")]
+    InvalidParameter(String),
 }
 
 impl From<io::Error> for KanshiError {
@@ -48,6 +51,21 @@ pub enum FileSystemEventType {
     Unknown,
 }
 
+impl ToString for FileSystemEventType {
+    fn to_string(&self) -> String {
+        match self {
+            FileSystemEventType::MovedTo(_) => "moved_to",
+            FileSystemEventType::MovedFrom(_) => "moved_from",
+            FileSystemEventType::Create => "create",
+            FileSystemEventType::Delete => "delete",
+            FileSystemEventType::Modify => "modify",
+            FileSystemEventType::Move => "move",
+            FileSystemEventType::Unknown => "unknown",
+        }
+        .to_owned()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FileSystemTargetKind {
     Directory,
@@ -60,13 +78,13 @@ pub struct FileSystemTarget {
     pub path: OsString,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FileSystemEvent {
     pub event_type: FileSystemEventType,
     pub target: Option<FileSystemTarget>,
 }
 
-pub trait KanshiImpl<Opts>: Clone {
+pub trait KanshiImpl<Opts>: Clone + Send + Sync {
     /// Creates a new Kanshi instance.
     /// Warning: This method blocks the thread until its finished!
     fn new(opts: Opts) -> Result<Self, KanshiError>
@@ -94,17 +112,17 @@ mod tests {
 
     use futures::StreamExt;
 
-    use crate::{Kanshi, KanshiImpl, KanshiOptions};
+    use crate::{FSEventsTracer, Kanshi, KanshiImpl, KanshiOptions};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn main() {
-        let kanshi = Kanshi::new(KanshiOptions { force_engine: None });
+        let kanshi = FSEventsTracer::new(KanshiOptions { force_engine: None });
         if let Err(e) = kanshi {
             panic!("{e}");
         }
 
         let kanshi = kanshi.ok().unwrap();
-        if let Err(e) = kanshi.watch("./why").await {
+        if let Err(e) = kanshi.watch(".").await {
             panic!("{e}");
         }
 
@@ -127,9 +145,11 @@ mod tests {
             kan.close();
         });
 
-        if let Err(e) = kanshi.start().await {
-            panic!("{e}");
-        }
+        tokio::task::spawn(async move { kanshi.start().await });
+
+        // if let Err(e) = kanshi.start().await {
+        //     panic!("{e}");
+        // }
 
         println!("closed");
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;

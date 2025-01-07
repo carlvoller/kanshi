@@ -11,5 +11,7 @@ repository.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
+futures = "0.3.31"
 kanshi = { workspace = true }
 neon = "1"
+tokio = { version = "1.42.0", features = ["rt"] }

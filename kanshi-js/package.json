@@ -4,15 +4,15 @@
   "description": "An easy-to-use, efficient, and performant filesystem watcher",
   "main": "./lib/index.cjs",
   "scripts": {
-    "test": "tsc &&cargo test && npm run cargo-build && mocha",
-    "cargo-build": "tsc &&cargo build --message-format=json-render-diagnostics > cargo.log",
-    "cross-build": "tsc &&cross build --message-format=json-render-diagnostics > cross.log",
+    "test": "tsc -p tsconfig.build.json && cargo test && npm run cargo-build && mocha -r ts-node/register test/index.test.ts -R spec",
+    "cargo-build": "tsc -p tsconfig.build.json &&cargo build --message-format=json-render-diagnostics > cargo.log",
+    "cross-build": "tsc -p tsconfig.build.json &&cross build --message-format=json-render-diagnostics > cross.log",
     "postcargo-build": "neon dist < cargo.log",
     "postcross-build": "neon dist -m /target < cross.log",
     "debug": "npm run cargo-build --",
     "build": "npm run cargo-build -- --release",
     "cross": "npm run cross-build -- --release",
-    "prepack": "tsc &&neon update",
+    "prepack": "tsc -p tsconfig.build.json &&neon update",
     "version": "neon bump --binaries platforms && git add .",
     "release": "gh workflow run release.yml -f dryrun=false -f version=patch",
     "dryrun": "gh workflow run publish.yml -f dryrun=true"
@@ -44,7 +44,9 @@
   "devDependencies": {
     "@neon-rs/cli": "^0.1.82",
     "@tsconfig/node20": "^20.1.4",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.16",
+    "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
   },
   "dependencies": {

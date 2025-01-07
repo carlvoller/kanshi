@@ -209,8 +209,10 @@ dependencies = [
 name = "kanshi-js"
 version = "0.0.1"
 dependencies = [
+ "futures",
  "kanshi",
  "neon",
+ "tokio",
 ]
 
 [[package]]

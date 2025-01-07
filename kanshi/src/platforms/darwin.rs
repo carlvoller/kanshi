@@ -2,19 +2,29 @@ use std::{borrow::Borrow, pin::Pin};
 
 use crate::{KanshiError, KanshiImpl};
 
-pub enum DarwinEngines {
+pub enum KanshiEngines {
     FSEvents,
     // KQueue,
+}
+
+impl KanshiEngines {
+    pub fn from(string: &str) -> Result<KanshiEngines, KanshiError> {
+        match string {
+            "fsevents" => Ok(KanshiEngines::FSEvents),
+            _ => Err(KanshiError::InvalidParameter(
+                "Invalid engine. Allowed values are: 'fsevents'".to_owned(),
+            )),
+        }
+    }
 }
 
 mod core_foundation;
 mod fsevents;
 
 pub struct KanshiOptions {
-    pub force_engine: Option<DarwinEngines>,
+    pub force_engine: Option<KanshiEngines>,
 }
 
-use async_stream::stream;
 pub use fsevents::FSEventsTracer;
 
 #[derive(Clone)]
@@ -60,11 +70,7 @@ impl KanshiImpl<KanshiOptions> for Kanshi {
             }
         };
 
-        Box::pin(stream! {
-          for await item in events_stream {
-            yield item
-          }
-        })
+        events_stream
     }
 
     fn close(&self) -> bool {

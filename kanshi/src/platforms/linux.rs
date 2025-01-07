@@ -1,11 +1,23 @@
 use std::{borrow::Borrow, pin::Pin};
 
-use crate::{KanshiImpl, KanshiError};
+use crate::{KanshiError, KanshiImpl};
 
 #[derive(Clone)]
-pub enum LinuxEngines {
+pub enum KanshiEngines {
     Fanotify,
     Inotify,
+}
+
+impl KanshiEngines {
+    pub fn from(string: &str) -> Result<KanshiEngines, KanshiError> {
+        match string {
+            "fanotify" => Ok(KanshiEngines::Fanotify),
+            "inotify" => Ok(KanshiEngines::Inotify),
+            _ => Err(KanshiError::InvalidParameter(
+                "Invalid engine. Allowed values are: 'fanotify', 'inotify'.".to_owned(),
+            )),
+        }
+    }
 }
 
 mod fanotify;
@@ -16,7 +28,7 @@ pub use fanotify::*;
 pub use inotify::*;
 
 pub struct KanshiOptions {
-    pub force_engine: Option<LinuxEngines>,
+    pub force_engine: Option<KanshiEngines>,
 }
 
 #[derive(Clone)]
@@ -35,22 +47,22 @@ impl KanshiImpl<KanshiOptions> for Kanshi {
     where
         Self: Sized + Clone,
     {
-        let chosen_engine: LinuxEngines = if let Some(engine) = opts.force_engine.as_ref() {
+        let chosen_engine: KanshiEngines = if let Some(engine) = opts.force_engine.as_ref() {
             engine.clone()
         } else {
             let uid = unsafe { libc::geteuid() };
 
             if uid == 0 {
-                LinuxEngines::Fanotify
+                KanshiEngines::Fanotify
             } else {
-                LinuxEngines::Inotify
+                KanshiEngines::Inotify
             }
         };
 
         Ok(Kanshi {
             engine: match chosen_engine {
-                LinuxEngines::Inotify => Engines::INotify(INotifyTracer::new(opts)?),
-                LinuxEngines::Fanotify => Engines::Fanotify(FanotifyTracer::new(opts)?),
+                KanshiEngines::Inotify => Engines::INotify(INotifyTracer::new(opts)?),
+                KanshiEngines::Fanotify => Engines::Fanotify(FanotifyTracer::new(opts)?),
             },
         })
     }
