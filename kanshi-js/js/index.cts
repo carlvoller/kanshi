@@ -63,7 +63,7 @@ class Kanshi {
   }
 
   async start(): Promise<undefined> {
-    addon.kanshiStart.call(this.#kanshi, this.#masterCallback);
+    return addon.kanshiStart.call(this.#kanshi, this.#masterCallback);
   }
 
   close(): boolean {
