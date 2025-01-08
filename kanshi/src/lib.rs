@@ -112,11 +112,11 @@ mod tests {
 
     use futures::StreamExt;
 
-    use crate::{FSEventsTracer, Kanshi, KanshiImpl, KanshiOptions};
+    use crate::{Kanshi, KanshiImpl, KanshiOptions};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn main() {
-        let kanshi = FSEventsTracer::new(KanshiOptions { force_engine: None });
+        let kanshi = Kanshi::new(KanshiOptions { force_engine: None });
         if let Err(e) = kanshi {
             panic!("{e}");
         }

@@ -1,6 +1,6 @@
 {
   "name": "kanshi-js",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "An easy-to-use, efficient, and performant filesystem watcher",
   "main": "./lib/index.cjs",
   "scripts": {
@@ -11,7 +11,8 @@
     "test": "npm run build && npm run test:rs && mocha -r ts-node/register test/index.test.ts -R spec",
     "test:rs": "cargo test --release",
     "version": "neon bump --binaries platforms && git add .",
-    "prepack": "npm run build:ts && neon update"
+    "prepack": "npm run build:ts && neon update",
+    "postinstall": "node scripts/postinstall.js"
   },
   "author": "Carl Voller",
   "license": "BSD-3-Clause",
@@ -29,11 +30,12 @@
   },
   "types": "./lib/index.d.cts",
   "files": [
+    "scripts/postinstall.js",
     "lib/**/*.?({c,m}){t,j}s"
   ],
   "neon": {
     "type": "library",
-    "org": "@kanshi-js",
+    "org": "@kanshi-js/",
     "platforms": "common",
     "load": "./js/load.cts"
   },
@@ -58,10 +60,9 @@
   },
   "homepage": "https://github.com/carlvoller/kanshi/tree/main/kanshi-js#readme",
   "optionalDependencies": {
-    "@kanshi-js/win32-x64-msvc": "0.1.0",
-    "@kanshi-js/darwin-x64": "0.1.0",
-    "@kanshi-js/darwin-arm64": "0.1.0",
-    "@kanshi-js/linux-x64-gnu": "0.1.0",
-    "@kanshi-js/linux-arm64-gnu": "0.1.0"
+    "@kanshi-js/darwin-x64": "^0.1.0",
+    "@kanshi-js/darwin-arm64": "^0.1.0",
+    "@kanshi-js/linux-x64-gnu": "^0.1.0",
+    "@kanshi-js/linux-arm64-gnu": "^0.1.0"
   }
 }

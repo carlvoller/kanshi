@@ -40,7 +40,7 @@ jobs:
           npm --prefix ./kanshi-js ci
           npm --prefix ./kanshi-js pack ./kanshi-js --pack-destination ./kanshi-js/dist
         env:
-          JUNCTION_CLIENT_SKIP_POSTINSTALL: "true"
+          KANSHI_SKIP_POSTINSTALL: "true"
 
       - name: upload packages
         uses: actions/upload-artifact@v4
@@ -104,7 +104,7 @@ jobs:
         env:
           CARGO_BUILD_TARGET: ${{ matrix.platform.target }}
           NEON_BUILD_PLATFORM: ${{ matrix.platform.neon_platform }}
-          JUNCTION_CLIENT_SKIP_POSTINSTALL: "true"
+          KANSHI_SKIP_POSTINSTALL: "true"
 
       - name: upload
         uses: actions/upload-artifact@v4
