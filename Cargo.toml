@@ -3,7 +3,6 @@ members = ["kanshi", "kanshi-js", "kanshi-py"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
 authors = ["Carl Voller"]
 edition = "2021"
 homepage = "https://github.com/carlvoller/kanshi"
@@ -11,7 +10,7 @@ license = "BSD-3-Clause"
 repository = "https://github.com/carlvoller/kanshi"
 
 [workspace.dependencies]
-kanshi = { version = "0.0.1", path = "kanshi", default-features = false }
+kanshi = { version = "0.1.0", path = "kanshi", default-features = false }
 
 [profile.release]
 opt-level = 3
