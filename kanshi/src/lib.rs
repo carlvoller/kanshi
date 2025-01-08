@@ -4,8 +4,10 @@ pub use platforms::*;
 
 use std::{ffi::OsString, io, pin::Pin};
 
-use nix::errno::Errno;
 use thiserror::Error;
+
+#[cfg(unix)]
+use nix::errno::Errno;
 
 #[derive(Error, Debug, Clone)]
 pub enum KanshiError {
@@ -34,6 +36,8 @@ impl From<io::Error> for KanshiError {
     }
 }
 
+
+#[cfg(unix)]
 impl From<Errno> for KanshiError {
     fn from(value: Errno) -> Self {
         KanshiError::FileSystemError(value.to_string())

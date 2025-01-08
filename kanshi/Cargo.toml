@@ -14,8 +14,13 @@ async-stream = "0.3.6"
 bitflags = "2.6.0"
 futures = "0.3"
 libc = "0.2.166"
-nix = { features = ["event", "fanotify", "fs", "inotify"], git = "https://github.com/carlvoller/nix", branch = "handle_fix" }
 thiserror = "1.0.64"
 tokio = { version = "1.41.1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 tokio-util = "0.7.13"
+
+[target.'cfg(unix)'.dependencies]
+nix = { features = ["event", "fanotify", "fs", "inotify"], git = "https://github.com/carlvoller/nix", branch = "handle_fix" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = "0.59.0"
