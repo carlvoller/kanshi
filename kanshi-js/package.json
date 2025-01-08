@@ -1,12 +1,14 @@
 {
   "name": "kanshi-js",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "An easy-to-use, efficient, and performant filesystem watcher",
   "main": "./lib/index.cjs",
   "scripts": {
     "build": "npm run build:rs && npm run build:ts",
     "build:rs": "cargo build --release --message-format=json-render-diagnostics > cargo.log",
+    "postbuild:rs": "neon dist < cargo.log",
     "build:cross": "cross build --release --message-format=json-render-diagnostics > cargo.log",
+    "postbuild:cross": "neon dist -m /target < cargo.log",
     "build:ts": "tsc -p tsconfig.build.json",
     "test": "npm run build && npm run test:rs && mocha -r ts-node/register test/index.test.ts -R spec",
     "test:rs": "cargo test --release",
@@ -60,9 +62,9 @@
   },
   "homepage": "https://github.com/carlvoller/kanshi/tree/main/kanshi-js#readme",
   "optionalDependencies": {
-    "@kanshi-js/darwin-x64": "^0.1.0",
-    "@kanshi-js/darwin-arm64": "^0.1.0",
-    "@kanshi-js/linux-x64-gnu": "^0.1.0",
-    "@kanshi-js/linux-arm64-gnu": "^0.1.0"
+    "@kanshi-js/darwin-x64": "^0.1.3",
+    "@kanshi-js/darwin-arm64": "^0.1.3",
+    "@kanshi-js/linux-x64-gnu": "^0.1.3",
+    "@kanshi-js/linux-arm64-gnu": "^0.1.3"
   }
 }
