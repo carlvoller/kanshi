@@ -1,6 +1,8 @@
 [package]
 name = "kanshi"
 description = "Easy-to-use rust crate for watching the filesystem"
+homepage = "https://github.com/carlvoller/kanshi"
+repository = "https://github.com/carlvoller/kanshi"
 version = { workspace = true }
 edition = { workspace = true }
 authors = { workspace = true }
