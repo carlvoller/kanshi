@@ -3,7 +3,7 @@ name: Release Kanshi.js to NPM
 on:
   push:
     branches:
-      - master
+      - main
     paths:
       kanshi-js/**
 

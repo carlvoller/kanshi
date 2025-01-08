@@ -10,8 +10,8 @@
     "build:ts": "tsc -p tsconfig.build.json",
     "test": "npm run build && npm run test:rs && mocha -r ts-node/register test/index.test.ts -R spec",
     "test:rs": "cargo test --release",
-    "prepack": "npm run build:ts && neon update",
-    "version": "neon bump --binaries platforms && git add ."
+    "version": "neon bump --binaries platforms && git add .",
+    "prepack": "npm run build:ts && neon update"
   },
   "author": "Carl Voller",
   "license": "BSD-3-Clause",
