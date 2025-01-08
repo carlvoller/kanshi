@@ -7,7 +7,7 @@
 
 module.exports = require('@neon-rs/load').proxy({
   platforms: {
-    'win32-x64-msvc': () => require('@kanshi-js/win32-x64-msvc'),
+    // 'win32-x64-msvc': () => require('@kanshi-js/win32-x64-msvc'),
     'darwin-x64': () => require('@kanshi-js/darwin-x64'),
     'darwin-arm64': () => require('@kanshi-js/darwin-arm64'),
     'linux-x64-gnu': () => require('@kanshi-js/linux-x64-gnu'),

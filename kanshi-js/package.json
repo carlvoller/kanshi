@@ -35,7 +35,7 @@
   ],
   "neon": {
     "type": "library",
-    "org": "@kanshi-js/",
+    "org": "@kanshi-js",
     "platforms": "common",
     "load": "./js/load.cts"
   },
