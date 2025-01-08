@@ -361,7 +361,7 @@ impl KanshiImpl<KanshiOptions> for FanotifyTracer {
 
 impl Drop for FanotifyTracer {
     fn drop(&mut self) {
-        println!("dropped!");
+        // println!("dropped!");
     }
 }
 
