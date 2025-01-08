@@ -26,6 +26,6 @@ jobs:
       - name: "Install Rust @ ${{ env.rust_stable }}"
         uses: dtolnay/rust-toolchain@stable
       - name: Publish to crates.io
-        run: cargo publish --token ${CRATES_TOKEN}
+        run: cd kanshi && cargo publish --token ${CRATES_TOKEN}
         env:
           CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}

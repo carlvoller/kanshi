@@ -3,7 +3,7 @@ members = ["kanshi", "kanshi-js", "kanshi-py"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 authors = ["Carl Voller"]
 edition = "2021"
 homepage = "https://github.com/carlvoller/kanshi"
