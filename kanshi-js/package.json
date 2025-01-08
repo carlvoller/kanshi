@@ -13,9 +13,7 @@
     "build": "npm run cargo-build -- --release",
     "cross": "npm run cross-build -- --release",
     "prepack": "tsc -p tsconfig.build.json &&neon update",
-    "version": "neon bump --binaries platforms && git add .",
-    "release": "gh workflow run release.yml -f dryrun=false -f version=patch",
-    "dryrun": "gh workflow run publish.yml -f dryrun=true"
+    "version": "neon bump --binaries platforms && git add ."
   },
   "author": "Carl Voller",
   "license": "BSD-3-Clause",
