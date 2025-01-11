@@ -1,7 +1,7 @@
 {
   "name": "@kanshi-js/win32-x64-msvc",
   "description": "Prebuilt binary package for `kanshi-js` on `win32-x64-msvc`.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "os": [
     "win32"
   ],

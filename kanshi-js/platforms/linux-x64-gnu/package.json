@@ -1,7 +1,7 @@
 {
   "name": "@kanshi-js/linux-x64-gnu",
   "description": "Prebuilt binary package for `kanshi-js` on `linux-x64-gnu`.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "os": [
     "linux"
   ],

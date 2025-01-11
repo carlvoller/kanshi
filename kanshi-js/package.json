@@ -1,6 +1,6 @@
 {
   "name": "kanshi-js",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "An easy-to-use, efficient, and performant filesystem watcher",
   "main": "./lib/index.cjs",
   "scripts": {
