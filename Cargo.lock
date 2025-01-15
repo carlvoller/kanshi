@@ -280,7 +280,7 @@ dependencies = [
 [[package]]
 name = "nix"
 version = "0.29.0"
-source = "git+https://github.com/carlvoller/nix?branch=handle_fix#750d41376224a230428b04cd91365c698de9044b"
+source = "git+https://github.com/carlvoller/nix?branch=master#21c54ec4fcd416ae98f94ed78951ad2ea4d5e13f"
 dependencies = [
  "bitflags",
  "cfg-if",

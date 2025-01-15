@@ -20,7 +20,7 @@ tokio-stream = { version = "0.1.17", features = ["sync"] }
 tokio-util = "0.7.13"
 
 [target.'cfg(unix)'.dependencies]
-nix = { features = ["event", "fanotify", "fs", "inotify"], git = "https://github.com/carlvoller/nix", branch = "handle_fix" }
+nix = { features = ["event", "fanotify", "fs", "inotify"], git = "https://github.com/carlvoller/nix", branch = "master" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = "0.59.0"

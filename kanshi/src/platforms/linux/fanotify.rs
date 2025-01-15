@@ -1,24 +1,17 @@
 use std::{
-    collections::{HashSet, VecDeque},
-    ffi::{CStr, OsStr, OsString},
-    fs, io,
-    os::{
+    collections::{HashSet, VecDeque}, ffi::{OsStr, OsString}, fs, io, os::{
         fd::{AsFd, AsRawFd},
         unix::fs::MetadataExt,
-    },
-    path::{Path, PathBuf},
-    pin::Pin,
-    sync::Arc,
+    }, path::{Path, PathBuf}, pin::Pin, sync::Arc
 };
 
 use async_stream::stream;
-use libc::{FAN_EVENT_INFO_TYPE_NEW_DFID_NAME, FAN_EVENT_INFO_TYPE_OLD_DFID_NAME};
 use nix::{
     errno::Errno,
     fcntl::AT_FDCWD,
     sys::{
         epoll::Epoll,
-        fanotify::{Fanotify, FanotifyFidRecord, FanotifyInfoRecord},
+        fanotify::{Fanotify, FanotifyFidEventInfoType, FanotifyFidRecord, FanotifyInfoRecord},
     },
 };
 use tokio::sync::broadcast::error::RecvError;
@@ -40,6 +33,7 @@ pub struct FanotifyTracer {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct FileHandle {
     pub handle_bytes: u32,
     pub handle_type: i32,
@@ -212,9 +206,9 @@ impl KanshiImpl<KanshiOptions> for FanotifyTracer {
                                     }
                                     path?
                                 };
-                                if record.info_type() == FAN_EVENT_INFO_TYPE_OLD_DFID_NAME {
+                                if record.info_type() == FanotifyFidEventInfoType::FAN_EVENT_INFO_TYPE_OLD_DFID_NAME {
                                     moved_from = Some(path);
-                                } else if record.info_type() == FAN_EVENT_INFO_TYPE_NEW_DFID_NAME {
+                                } else if record.info_type() == FanotifyFidEventInfoType::FAN_EVENT_INFO_TYPE_NEW_DFID_NAME {
                                     moved_to = Some(path);
                                 }
                             }
@@ -387,7 +381,8 @@ fn mark(fanotify: &Fanotify, path: &Path) -> Result<(), KanshiError> {
 fn get_path_from_record(record: &FanotifyFidRecord) -> Result<OsString, Errno> {
     let mut path = OsString::new();
 
-    let fh = record.handle() as *mut FileHandle;
+    let handle = &record.handle();
+    let fh = handle.as_ptr() as *mut FileHandle;
     let fd = unsafe {
         libc::syscall(
             libc::SYS_open_by_handle_at,
@@ -405,19 +400,10 @@ fn get_path_from_record(record: &FanotifyFidRecord) -> Result<OsString, Errno> {
         return Err(Errno::last());
     }
 
-    let file_name: *const libc::c_char = unsafe {
-        (fh.add(1) as *const libc::c_char)
-            .add(size_of_val(&(*fh).f_handle))
-            .add(size_of_val(&(*fh).handle_bytes))
-            .add(size_of_val(&(*fh).handle_type))
-            .add(4) // no idea why i need to add 4 here tbh
-    };
+    let file_name = record.name();
 
-    if !file_name.is_null()
-        && unsafe { libc::strcmp(file_name, b".\0".as_ptr() as *const libc::c_char) != 0 }
-    {
-        let file_name_as_cstr = unsafe { CStr::from_ptr(file_name).to_str() };
-        if let Ok(name) = file_name_as_cstr {
+    if let Some(name) = file_name {
+        if name != "." {
             path.push("/");
             path.push(name);
         }
