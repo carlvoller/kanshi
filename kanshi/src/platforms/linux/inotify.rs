@@ -355,22 +355,25 @@ impl KanshiImpl<KanshiOptions> for INotifyTracer {
 
                     let path_as_path_buf = PathBuf::from(full_path.clone());
 
-                    if let Some(_) = wd
-                        .values()
-                        .find(|x| x.as_path() == path_as_path_buf.as_path())
-                    {
-                        wd.retain(|curr_wd, path| {
-                            if path.starts_with(&path_as_path_buf) {
-                                let _ = unmark(&self.inotify, curr_wd);
-                            }
-                            !path.starts_with(&path_as_path_buf)
-                        });
-                        drop(wd);
-                    } else {
-                        drop(wd);
-                        self.watch(path_as_path_buf.clone().to_str().unwrap())
-                            .await?;
+                    if kind == FileSystemTargetKind::Directory {
+                        if let Some(_) = wd
+                            .values()
+                            .find(|x| x.as_path() == path_as_path_buf.as_path())
+                        {
+                            wd.retain(|curr_wd, path| {
+                                if path.starts_with(&path_as_path_buf) {
+                                    let _ = unmark(&self.inotify, curr_wd);
+                                }
+                                !path.starts_with(&path_as_path_buf)
+                            });
+                            drop(wd);
+                        } else {
+                            drop(wd);
+                            self.watch(path_as_path_buf.clone().to_str().unwrap())
+                                .await?;
+                        }
                     }
+
 
                     // if wd.contains_key(&record.wd) {
                     //     wd.remove(&record.wd);
