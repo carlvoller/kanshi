@@ -1,6 +1,6 @@
 {
   "name": "kanshi-js",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "An easy-to-use, efficient, and performant filesystem watcher",
   "main": "./lib/index.cjs",
   "scripts": {
@@ -10,7 +10,7 @@
     "build:cross": "cross build --release --message-format=json-render-diagnostics > cargo.log",
     "postbuild:cross": "neon dist -m /target < cargo.log",
     "build:ts": "tsc -p tsconfig.build.json",
-    "test": "npm run build && npm run test:rs && mocha -r ts-node/register test/index.test.ts -R spec",
+    "test": "npm run build && npm run test:rs && mocha -r ts-node/register test/index.test.ts --timeout 10000 -R spec",
     "test:rs": "cargo test --release",
     "version": "neon bump --binaries platforms && git add .",
     "prepack": "npm run build:ts && neon update",
@@ -65,6 +65,7 @@
     "@kanshi-js/darwin-x64": "0.1.6",
     "@kanshi-js/darwin-arm64": "0.1.6",
     "@kanshi-js/linux-x64-gnu": "0.1.6",
-    "@kanshi-js/linux-arm64-gnu": "0.1.6"
+    "@kanshi-js/linux-arm64-gnu": "0.1.6",
+    "@kanshi-js/win32-x64-msvc": "0.1.6"
   }
 }

@@ -8,6 +8,8 @@ use std::{
     os::raw::{c_long, c_uchar, c_uint, c_void},
 };
 
+use once_cell::sync::Lazy;
+
 use super::CFStringCreateWithBytes;
 
 //
@@ -80,18 +82,17 @@ pub type FSEventStreamCallback = extern "C" fn(
 );
 
 pub const kCFStringEncodingUTF8: u32 = 0x08000100;
-pub const kFSEventStreamEventIdSinceNow: FSEventStreamId = 0xFFFFFFFFFFFFFFFF;
-pub const kFSEventStreamEventExtendedDataPathKey: LazyCell<CFStringRef> =
-    LazyCell::new(|| unsafe {
-        CFStringCreateWithBytes(
-            kCFAllocatorDefault,
-            "path".as_ptr(),
-            "path".len() as isize,
-            kCFStringEncodingUTF8,
-            false as Boolean,
-        )
-    });
-pub const kFSEventStreamEventExtendedFileIDKey: LazyCell<CFStringRef> = LazyCell::new(|| unsafe {
+pub const kFSEventStreamEventIdSinceNow: FSEventStreamId = u64::MAX;
+pub const kFSEventStreamEventExtendedDataPathKey: Lazy<CFStringRef> = Lazy::new(|| unsafe {
+    CFStringCreateWithBytes(
+        kCFAllocatorDefault,
+        "path".as_ptr(),
+        "path".len() as isize,
+        kCFStringEncodingUTF8,
+        false as Boolean,
+    )
+});
+pub const kFSEventStreamEventExtendedFileIDKey: Lazy<CFStringRef> = Lazy::new(|| unsafe {
     CFStringCreateWithBytes(
         kCFAllocatorDefault,
         "fileID".as_ptr(),

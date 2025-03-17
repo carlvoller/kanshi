@@ -148,8 +148,7 @@ impl KanshiJS {
                             .call(&mut cx, this, [js_event_as_value])?;
 
                         Ok(())
-                    })
-                    .join();
+                    }).await;
 
                 if let Err(e) = handle {
                     println!("{:?}", e);

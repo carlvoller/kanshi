@@ -4,6 +4,7 @@ use std::{
     ffi::{CStr, CString},
     os::raw::c_char,
     ptr::null_mut,
+    str,
 };
 
 use types::*;
@@ -51,6 +52,8 @@ extern "C" {
 
     /// https://developer.apple.com/documentation/coreservices/1443980-fseventstreamcreate?language=objc
     pub fn FSEventStreamSetDispatchQueue(streamRef: FSEventStreamRef, q: dispatch_queue_t);
+
+    pub fn FSEventStreamFlushSync(streamRef: FSEventStreamRef);
 
     pub fn CFArrayCreateMutable(
         allocator: CFRef,
@@ -216,10 +219,10 @@ pub unsafe fn rust_str_to_cf_string(rust_str: &str, err: CFErrorRef) -> CFString
 pub unsafe fn cfstr_to_str(string: CFStringRef) -> String {
     let cstr_ptr = CFStringGetCStringPtr(string, kCFStringEncodingUTF8);
     if !cstr_ptr.is_null() {
-        CStr::from_ptr(cstr_ptr).to_str().ok().unwrap().to_owned()
+        str::from_utf8_unchecked(CStr::from_ptr(cstr_ptr).to_bytes()).to_owned()
     } else {
         let str_len = CFStringGetLength(string);
-        let bytes_required = 0 as *mut isize;
+        let mut bytes_required = 0isize;
         CFStringGetBytes(
             string,
             CFRange {
@@ -231,9 +234,10 @@ pub unsafe fn cfstr_to_str(string: CFStringRef) -> String {
             false as Boolean,
             std::ptr::null_mut(),
             0,
-            bytes_required,
+            &mut bytes_required,
         );
 
+        println!("BYTES REQUIRED -- {bytes_required}");
         let mut final_string_buffer = Vec::with_capacity(bytes_required as usize);
         final_string_buffer.fill(b'\x00');
 
@@ -251,6 +255,8 @@ pub unsafe fn cfstr_to_str(string: CFStringRef) -> String {
             final_string_buffer.len() as isize,
             &mut bytes_used,
         );
+
+        println!("what {:?}", final_string_buffer);
 
         String::from_utf8_unchecked(final_string_buffer)
 

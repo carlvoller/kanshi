@@ -1,6 +1,6 @@
 [package]
 name = "kanshi-js"
-version = "0.1.3"
+version = "0.1.7"
 authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
@@ -13,5 +13,5 @@ crate-type = ["cdylib"]
 [dependencies]
 futures = "0.3.31"
 kanshi = { workspace = true }
-neon = "1"
+neon = { version = "1", features = ["futures"] }
 tokio = { version = "1.42.0", features = ["rt"] }
