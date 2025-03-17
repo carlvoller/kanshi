@@ -97,7 +97,7 @@ jobs:
       - name: build
         shell: bash
         run: |
-          npm --prefix ./kanshi-js ci --fund=false
+          npm --prefix ./kanshi-js install --fund=false
           npm --prefix ./kanshi-js run ${{ matrix.platform.neon_build || 'build' }}
           mkdir -p ./kanshi-js/dist
           npm --prefix ./kanshi-js pack ./kanshi-js/platforms/${{ matrix.platform.neon_platform }} --pack-destination ./kanshi-js/dist

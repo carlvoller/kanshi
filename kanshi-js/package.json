@@ -62,10 +62,10 @@
   },
   "homepage": "https://github.com/carlvoller/kanshi/tree/main/kanshi-js#readme",
   "optionalDependencies": {
-    "@kanshi-js/darwin-x64": "0.1.6",
-    "@kanshi-js/darwin-arm64": "0.1.6",
-    "@kanshi-js/linux-x64-gnu": "0.1.6",
-    "@kanshi-js/linux-arm64-gnu": "0.1.6",
-    "@kanshi-js/win32-x64-msvc": "0.1.6"
+    "@kanshi-js/darwin-x64": "0.1.7",
+    "@kanshi-js/darwin-arm64": "0.1.7",
+    "@kanshi-js/linux-x64-gnu": "0.1.7",
+    "@kanshi-js/linux-arm64-gnu": "0.1.7",
+    "@kanshi-js/win32-x64-msvc": "0.1.7"
   }
 }
