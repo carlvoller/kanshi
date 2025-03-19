@@ -1,0 +1,4 @@
+name-template: kanshipy $RESOLVED_VERSION
+tag-template: py-$RESOLVED_VERSION
+tag-prefix: py-
+template: Version $RESOLVED_VERSION is now available!

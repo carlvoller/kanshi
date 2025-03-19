@@ -181,7 +181,7 @@ const kan = new Kanshi();
 kan.watch(".").then(() => kanshi.start());
 ```
 
-> Once a Kanshi instance has been started, you cannot watch anymore new directories.
+> Once a Kanshi instance has been started, you cannot watch any new directories.
 
 #### `kanshi.close(): boolean`
 This method closes the Kanshi listener. Calling this method will deregister all event listeners and resolve the promise returned by `kanshi.start()`.
@@ -192,4 +192,4 @@ This method closes the Kanshi listener. Calling this method will deregister all 
 PRs are welcomed! Any help is appreciated. Please refer to the main Kanshi project for more information.
 
 ### License
-Copyright © 2024, Carl Ian Voller. Released under the BSD-3-Clause License.
+Copyright © 2025, Carl Ian Voller. Released under the BSD-3-Clause License.
